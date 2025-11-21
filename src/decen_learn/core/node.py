@@ -238,7 +238,7 @@ class Node:
             Reconstructed weight dictionary
         """
         # Find convex coefficients via RANSAC or Gilbert's algorithm
-        from src.decen_learn.projection.ransac import ransac_simplex
+        from ..tverberg.ransac import ransac_simplex
         
         projected_neighbors = np.stack(self.state.buffer_projected, axis=0)
         

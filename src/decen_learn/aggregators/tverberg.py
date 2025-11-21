@@ -1,5 +1,5 @@
 # src/decen_learn/aggregators/tverberg.py
-from aggregator import BaseAggregator, AggregationResult
+from .base import BaseAggregator, AggregationResult
 import numpy as np
 
 class TverbergAggregator(BaseAggregator):
