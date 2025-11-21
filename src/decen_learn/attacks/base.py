@@ -1,4 +1,6 @@
 # src/decen_learn/attacks/base.py
+"""Base attack class."""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -23,8 +25,7 @@ class BaseAttack(ABC):
         honest_weights: List[Dict[str, np.ndarray]],
         attacker_weights: Dict[str, np.ndarray],
     ) -> Dict[str, np.ndarray]:
-        """
-        Craft malicious weights based on observed honest updates.
+        """Craft malicious weights.
         
         Args:
             honest_weights: List of weight dicts from honest neighbors
