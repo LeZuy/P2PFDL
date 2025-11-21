@@ -89,6 +89,6 @@ hostname
 # python main.py --consensus tverberg
 # python main.py --consensus geomedian
 # python ./model/train.py
-python ./model/train.py
+python ./scripts/example_usage.py
 echo "Finish Run"
 echo "end time is `date`"
