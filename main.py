@@ -1,190 +1,133 @@
-"""Entry point for running decentralized consensus training experiments."""
-
-from __future__ import annotations
+# main.py (refactored)
+"""Entry point using refactored core module."""
 
 import argparse
-import shutil
+import numpy as np
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
 
 import torch
-import numpy as np
 
+from decen_learn.core import Node, ByzantineNode, RandomWeightProjector
+from decen_learn.aggregators import get_aggregator
+from decen_learn.attacks import MinMaxAttack
+from decen_learn.config import ExperimentConfig
 from model.ResNet_Cifar import ResNet18_CIFAR
-from simulation.process import ByzantineNode, Node
-from simulation.training import run_training
-from utils import (
-    build_projection_mats,
-    load_projection_mats,
-    save_model,
-    save_projection_mats,
-)
+from model.train import get_trainloader, get_testloader
 
 
-DEFAULT_NUM_PROCESSES = 64
-DEFAULT_PROJECTION_DIM = 2
-DEFAULT_PROJECTION_CACHE = Path("./configs/projection_mats.npz")
-RESULTS_ROOT = Path("./results")
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments."""
-
-    parser = argparse.ArgumentParser(
-        description="Distributed Training with Different Consensus Methods"
-    )
-    parser.add_argument(
-        "--consensus",
-        type=str,
-        default="mean",
-        choices=["mean", "trimmed_mean", "tverberg", "krum", "geomedian"],
-        help="Consensus rule applied during distributed training.",
-    )
-    parser.add_argument(
-        "--num-gpus",
-        type=int,
-        default=4,
-        help="Number of CUDA devices to distribute clients across.",
-    )
-    parser.add_argument(
-        "--projection-cache",
-        type=str,
-        default=str(DEFAULT_PROJECTION_CACHE),
-        help=(
-            "Path to .npz cache of per-layer projection matrices. "
-            "Pass an empty string to disable caching."
-        ),
-    )
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--consensus", type=str, default="mean")
+    parser.add_argument("--num-gpus", type=int, default=4)
+    parser.add_argument("--config", type=str, default=None)
     return parser.parse_args()
 
 
-def load_bad_clients(path: Path) -> List[int]:
-    """Return the list of Byzantine client ids configured for the run."""
-
-    raw_ids = np.loadtxt(path, dtype=int)
-    return np.atleast_1d(raw_ids).astype(int).tolist()
-
-
-def build_processes(
-    num_processes: int,
-    projection_mats: Dict[str, np.ndarray],
-    bad_clients: Iterable[int],
-    devices: Sequence[torch.device],
-) -> List[Node]:
-    """Instantiate honest and Byzantine processes with shared projections."""
-    bad_client_set = set(bad_clients)
-
-    processes: List[Node] = []
-    if not devices:
-        raise ValueError("Device list must contain at least one entry.")
-
-    for pid in range(num_processes):
-        model_instance = ResNet18_CIFAR()
-        device = devices[pid % len(devices)]
-        if pid in bad_client_set:
-            processes.append(
-                ByzantineNode(
-                    pid,
-                    projection_mats,
-                    bad_clients,
-                    model_instance,
-                    device=device,
-                )
+def create_nodes(config: ExperimentConfig, projector):
+    """Create network of nodes."""
+    # Load Byzantine indices
+    bad_path = Path("./configs/bad_clients_rand.txt")
+    if bad_path.exists():
+        bad_indices = np.loadtxt(bad_path, dtype=int, ndmin=1).tolist()
+    else:
+        # Generate random Byzantine nodes
+        num_byz = int(config.topology.num_nodes * config.attack.byzantine_fraction)
+        bad_indices = np.random.choice(
+            config.topology.num_nodes,
+            num_byz,
+            replace=False
+        ).tolist()
+    
+    print(f"Byzantine nodes: {len(bad_indices)}/{config.topology.num_nodes}")
+    
+    # Create attack
+    attack = MinMaxAttack(boosting_factor=1.0)
+    
+    # Create nodes
+    nodes = []
+    for node_id in range(config.topology.num_nodes):
+        model = ResNet18_CIFAR()
+        dataloader = get_trainloader(
+            f"{config.data_dir}/client_{node_id}",
+            batch_size=config.training.batch_size,
+        )
+        
+        if node_id in bad_indices:
+            node = ByzantineNode(
+                node_id=node_id,
+                model=model,
+                projector=projector,
+                dataloader=dataloader,
+                attack=attack,
+                bad_client_ids=bad_indices,
+                learning_rate=config.training.learning_rate,
+                momentum=config.training.momentum,
+                weight_decay=config.training.weight_decay,
             )
         else:
-            processes.append(
-                Node(
-                    pid,
-                    projection_mats,
-                    model_instance,
-                    device=device,
-                )
+            node = Node(
+                node_id=node_id,
+                model=model,
+                projector=projector,
+                dataloader=dataloader,
+                learning_rate=config.training.learning_rate,
+                momentum=config.training.momentum,
+                weight_decay=config.training.weight_decay,
             )
-    return processes
+        
+        nodes.append(node)
+    
+    return nodes
 
 
-def assign_neighbors(processes: List[Node], topology: np.ndarray) -> None:
-    """Populate neighbor lists based on the adjacency matrix."""
-    for process in processes:
-        neighbors = np.nonzero(topology[process.id])[0]
-        process.neighbors = [int(node_id) for node_id in neighbors]
-
-
-def clear_results_dir(path: Path) -> None:
-    """Ensure the results directory exists and is empty before training."""
-    path.mkdir(parents=True, exist_ok=True)
-    for item in path.iterdir():
-        if item.is_file():
-            item.unlink()
-        elif item.is_dir():
-            shutil.rmtree(item)
-
-
-def main() -> None:
+def main():
     args = parse_args()
-    consensus_type = args.consensus
-
-    num_processes = DEFAULT_NUM_PROCESSES
-    projection_dim = DEFAULT_PROJECTION_DIM
-
-    cache_arg = args.projection_cache.strip()
-    projection_cache: Optional[Path] = (
-        Path(cache_arg).expanduser() if cache_arg else None
-    )
-
-    available_gpus = torch.cuda.device_count()
-    requested_gpus = max(0, int(args.num_gpus))
-    active_gpu_count = min(requested_gpus, available_gpus)
-
-    if active_gpu_count > 0:
-        devices = [torch.device(f"cuda:{idx}") for idx in range(active_gpu_count)]
+    
+    # Load config
+    if args.config:
+        config = ExperimentConfig.from_yaml(Path(args.config))
     else:
-        devices = [torch.device("cpu")]
-
-    bad_clients_path = Path("./configs/bad_clients_rand.txt")
-    bad_clients = load_bad_clients(bad_clients_path)
-    # bad_clients = []
-
-    percentage = len(bad_clients) / num_processes * 100
-    print(f"Byzantine nodes: {len(bad_clients)} ({percentage:.2f}%) -> {bad_clients}")
-
-    projection_mats = None
-    if projection_cache and projection_cache.exists():
-        print(f"Loading projection matrices from {projection_cache}")
-        projection_mats = load_projection_mats(projection_cache)
-
-    if projection_mats is None:
-        print("Building new projection matrices...")
-        base_model = ResNet18_CIFAR()
-        projection_mats = build_projection_mats(base_model, projection_dim)
-        if projection_cache:
-            projection_cache.parent.mkdir(parents=True, exist_ok=True)
-            save_projection_mats(projection_mats, projection_cache)
-            print(f"Saved projection matrices to {projection_cache}")
-
-    processes = build_processes(
-        num_processes,
-        projection_mats,
-        bad_clients,
-        devices,
+        config = ExperimentConfig()
+        config.consensus_type = args.consensus
+        config.num_gpus = args.num_gpus
+    
+    # Create projector
+    base_model = ResNet18_CIFAR()
+    projector = RandomWeightProjector.from_model(
+        base_model,
+        projection_dim=config.projection_dim,
+        random_state=42,
     )
-
+    
+    # Create nodes
+    nodes = create_nodes(config, projector)
+    
+    # Assign topology
     topology = np.loadtxt("./configs/erdos_renyi.txt")
-    assign_neighbors(processes, topology)
-
-    results_dir = RESULTS_ROOT / consensus_type
-    # results_dir = Path("./results/optimal")
-    clear_results_dir(results_dir)
-
-    max_parallel_gpu = active_gpu_count if active_gpu_count > 0 else 1
-    run_training(
-        consensus_type,
-        processes,
-        epochs=200,
-        max_parallel_gpu=max_parallel_gpu,
-        results_dir=results_dir,
+    for node in nodes:
+        neighbors = np.nonzero(topology[node.id])[0]
+        node.neighbors = neighbors.tolist()
+    
+    # Create aggregator
+    num_byzantine = sum(1 for n in nodes if n.is_byzantine)
+    aggregator = get_aggregator(
+        config.consensus_type,
+        num_byzantine=num_byzantine,
     )
-    save_model(processes, path=str(results_dir / "final_models.pth"))
+    
+    print(f"Starting training with {aggregator.__class__.__name__}")
+    
+    # Import and use existing training loop
+    from simulation.training import run_training
+    
+    run_training(
+        consensus_type=config.consensus_type,
+        processes=nodes,
+        epochs=config.training.epochs,
+        max_parallel_gpu=config.num_gpus,
+        results_dir=config.results_dir / config.consensus_type,
+    )
+
 
 if __name__ == "__main__":
     main()

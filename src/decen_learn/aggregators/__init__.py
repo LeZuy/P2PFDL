@@ -1,5 +1,6 @@
 # src/decen_learn/aggregators/__init__.py
 from typing import Dict, Type
+
 from .base import BaseAggregator, AggregationResult
 from .krum import KrumAggregator
 from .tverberg import TverbergAggregator
@@ -16,5 +17,19 @@ AGGREGATORS: Dict[str, Type[BaseAggregator]] = {
 def get_aggregator(name: str, **kwargs) -> BaseAggregator:
     """Factory function for creating aggregators."""
     if name not in AGGREGATORS:
-        raise ValueError(f"Unknown aggregator: {name}. Available: {list(AGGREGATORS.keys())}")
+        raise ValueError(
+            f"Unknown aggregator: {name}. "
+            f"Available: {list(AGGREGATORS.keys())}"
+        )
     return AGGREGATORS[name](**kwargs)
+
+__all__ = [
+    "BaseAggregator",
+    "AggregationResult",
+    "KrumAggregator",
+    "TverbergAggregator",
+    "MeanAggregator",
+    "TrimmedMeanAggregator",
+    "get_aggregator",
+    "AGGREGATORS",
+]

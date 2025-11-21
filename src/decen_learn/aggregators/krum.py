@@ -1,7 +1,6 @@
 # src/decen_learn/aggregators/krum.py
-from aggregator import BaseAggregator, AggregationResult
 import numpy as np
-
+from .base import BaseAggregator, AggregationResult
 class KrumAggregator(BaseAggregator):
     """Multi-Krum aggregation rule."""
     
@@ -15,8 +14,7 @@ class KrumAggregator(BaseAggregator):
         
         if not (0 <= f < m // 2):
             raise ValueError(f"Invalid f={f} for m={m} vectors")
-        
-        # Compute pairwise distances efficiently
+       
         scores = self._compute_scores(vectors, f)
         selected_idx = int(np.argmin(scores))
         
@@ -30,7 +28,6 @@ class KrumAggregator(BaseAggregator):
         m = vectors.shape[0]
         nb = m - f - 2
         
-        # Efficient pairwise distance computation
         sq_norms = np.sum(vectors ** 2, axis=1, keepdims=True)
         dists = sq_norms + sq_norms.T - 2.0 * (vectors @ vectors.T)
         np.fill_diagonal(dists, 0.0)
@@ -38,8 +35,7 @@ class KrumAggregator(BaseAggregator):
         
         if nb <= 0:
             return dists.sum(axis=1)
-        
-        # Sum of nb smallest distances for each vector
+    
         scores = np.zeros(m)
         for i in range(m):
             d_i = np.delete(dists[i], i)
