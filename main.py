@@ -4,7 +4,7 @@
 import argparse
 import numpy as np
 from pathlib import Path
-
+from typing import Optional
 import torch
 
 from decen_learn.core import Node, ByzantineNode, RandomWeightProjector
@@ -15,6 +15,7 @@ from decen_learn.training import (
     DecentralizedTrainer,
     assign_topology,
     load_topology,
+    create_topology_ring,
     create_topology_erdos_renyi,
     select_byzantine_nodes,
     verify_byzantine_constraint,

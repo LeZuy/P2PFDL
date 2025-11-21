@@ -38,8 +38,8 @@
 # Set filenames for stdout and stderr.  %j can be used for the jobid.
 # see "filename patterns" section of the sbatch man page for
 # additional options
-#SBATCH --error=./results/data.err
-#SBATCH --output=./results/data.out
+#SBATCH --error=./slurm/data.err
+#SBATCH --output=./slurm/data.out
 #
 
 # set the partition where the job will run.  Multiple partitions can
@@ -89,6 +89,8 @@ hostname
 # python main.py --consensus tverberg
 # python main.py --consensus geomedian
 # python ./model/train.py
-python ./scripts/example_usage.py
+source /share/apps/linux-ubuntu20.04-zen2/anaconda3-2021.05/etc/profile.d/conda.sh
+conda activate p2pdfl
+pip install -e .
 echo "Finish Run"
 echo "end time is `date`"

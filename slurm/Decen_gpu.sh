@@ -50,8 +50,10 @@ echo "Time:           $(date)"
 hostname
 sleep 0
 
-python main.py --num-gpus 4 --consensus krum
-# python test_pall.py
+source /share/apps/linux-ubuntu20.04-zen2/anaconda3-2021.05/etc/profile.d/conda.sh
+conda activate p2pdfl
+python main.py --topology file --topology-file configs/topologies/erdos_renyi.txt --num-gpus 4 --epochs 2 --num-nodes 8 --data-dir ./data_splits --results-dir ./results/
+
 # Diagnostic/Logging Information
 echo "Finish Run"
 echo "end time is `date`"

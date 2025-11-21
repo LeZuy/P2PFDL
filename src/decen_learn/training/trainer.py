@@ -123,7 +123,48 @@ class DecentralizedTrainer:
         print(f"\n{'='*60}")
         print("Training complete!")
         print(f"{'='*60}\n")
-        
+        self._save_history(epochs)
+
+        return {
+            'losses': self.losses_history,
+            'test_metrics': self.test_metrics_history,
+        }
+
+    def _save_history(self, epochs: int) -> None:
+        """Persist aggregate training and testing metrics for each epoch."""
+        if not self.losses_history:
+            return
+
+        losses_array = np.array(self.losses_history)
+        avg_train_losses = losses_array.mean(axis=1)
+
+        # Initialize with NaNs for epochs without evaluation
+        test_loss_means = np.full(epochs, np.nan)
+        test_acc_means = np.full(epochs, np.nan)
+
+        for epoch, metrics in zip(self.test_epochs, self.test_metrics_history):
+            # metrics shape: (num_nodes, 3) -> [loss, acc, asr]
+            mean_metrics = metrics.mean(axis=0)
+            test_loss_means[epoch] = mean_metrics[0]
+            test_acc_means[epoch] = mean_metrics[1]
+
+        history = np.column_stack(
+            (
+                np.arange(1, epochs + 1),
+                avg_train_losses,
+                test_loss_means,
+                test_acc_means,
+            )
+        )
+
+        np.savetxt(
+            self.results_dir / "training_history.csv",
+            history,
+            delimiter=",",
+            header="epoch,train_loss,test_loss,test_accuracy",
+            comments="",
+            fmt=["%d", "%.6f", "%.6f", "%.6f"],
+        )
         return {
             'losses': self.losses_history,
             'test_metrics': self.test_metrics_history,
