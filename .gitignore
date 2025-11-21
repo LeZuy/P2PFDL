@@ -3,4 +3,4 @@
 /results/
 /*/__pycache__/
 /data_splits/
-configs/projection_mats.npz
+/configs/projection_mats.npz
