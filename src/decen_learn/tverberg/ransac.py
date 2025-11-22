@@ -54,12 +54,13 @@ def qp_optimization(verts, q, tol=1e-12):
         prob = cp.Problem(cp.Minimize(0.5 * cp.sum_squares(lam)), constraints)
         prob.solve(verbose=False)
 
-        lam_star = lam.value  # barycentric weights
-        print(f"Lambda_star: {lam_star}")
-        return lam_star
+        print(f"Lambda_star: {lam.value}") # barycentric weights
+        return lam.value
+
     except Exception as e:
         return None
     
+
 def _in_simplex(x, verts, eps=0.0, tol=1e-12):
     """
     Check if x is inside simplex conv(verts) with slack eps on barycentric >= -eps.
@@ -240,23 +241,7 @@ def ransac_simplex(
             w_dense[best['inliers_excl_verts_indices']] = 1 / len(best['inliers_excl_verts_indices'])
             best['q_weights_dense'] = w_dense
             
-
     return best
-
-def is_in_convex_hull(point: np.ndarray, X: np.ndarray, tol: float = 1e-9) -> bool:
-    n, d = X.shape
-    c = np.zeros(n)
-    A_eq = np.vstack([np.ones(n), X.T])
-    b_eq = np.hstack([1, point])
-    bounds = [(0, None)] * n
-
-    # Tự động chọn solver tương thích
-    try:
-        res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
-    except ValueError:
-        res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='interior-point')
-
-    return res.success and res.status == 0 and np.allclose(A_eq @ res.x, b_eq, atol=tol)
 
 if __name__ == "__main__":
     d = 1000

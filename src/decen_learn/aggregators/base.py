@@ -18,8 +18,17 @@ class AggregationResult:
 class BaseAggregator(ABC):
     """Abstract base class for all aggregation methods."""
     
-    def __init__(self, num_byzantine: int = 0):
+    def __init__(
+        self,
+        num_byzantine: int = 0,
+        byzantine_fraction: float = 0.33,
+    ):
+        # Allow passing either explicit count or fraction; algorithms can pick.
         self.num_byzantine = num_byzantine
+        self.byzantine_fraction = byzantine_fraction
+        # Most aggregators operate in the original weight space.
+        # Set to True for aggregators that expect projected inputs (e.g., Tverberg).
+        self.requires_projection: bool = False
     
     @abstractmethod
     def aggregate(self, vectors: np.ndarray) -> AggregationResult:
@@ -36,6 +45,12 @@ class BaseAggregator(ABC):
     
     def __call__(self, vectors: np.ndarray) -> AggregationResult:
         vectors = self._validate_input(vectors)
+        # If too few vectors, fallback to mean
+        if vectors.shape[0] <= 2:
+            return AggregationResult(
+                vector=np.mean(vectors, axis=0),
+                metadata={"fallback": "mean_two_vectors", "n_vectors": vectors.shape[0]},
+            )
         return self.aggregate(vectors)
     
     def _validate_input(self, vectors: np.ndarray) -> np.ndarray:

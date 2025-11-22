@@ -72,11 +72,12 @@ class DecentralizedTrainer:
         # Metrics tracking
         self.losses_history = []
         self.test_metrics_history = []
+        self.test_epochs: List[int] = []
         
         print(f"Initialized trainer with {len(nodes)} nodes")
-        print(f"  Aggregator: {aggregator.__class__.__name__}")
-        print(f"  Max parallel GPU: {max_parallel_gpu}")
-        print(f"  Results dir: {self.results_dir}")
+        print(f"\tAggregator: {aggregator.__class__.__name__}")
+        print(f"\tMax parallel GPU: {max_parallel_gpu}")
+        print(f"\tResults dir: {self.results_dir}")
     
     def train(self, epochs: int) -> dict:
         """Run full training loop.
@@ -103,9 +104,12 @@ class DecentralizedTrainer:
                 consensus_time = self._run_consensus_phase(epoch)
             else:
                 consensus_time = 0.0
+            if epoch % 5 == 0:
+                print(f"Consensus time: {consensus_time:.2f}s")
             
             # ===== Evaluation Phase =====
             if epoch % self.test_interval == 0:
+                self.test_epochs.append(epoch)
                 test_metrics = self._run_evaluation(epoch)
                 self.test_metrics_history.append(test_metrics)
             
@@ -286,7 +290,11 @@ class DecentralizedTrainer:
                 continue  # Byzantine nodes don't update
             
             # For Tverberg with neighbors, use preimage reconstruction
-            if self.is_tverberg and neighbor_count > 0:
+            if (
+                self.is_tverberg
+                and neighbor_count > 0
+                and node.state.consensus_coefficients is not None
+            ):
                 # Reconstruct from convex combination
                 updated_weights = node._reconstruct_from_coefficients(
                     node.state.consensus_coefficients.get("__flat__")
@@ -294,12 +302,11 @@ class DecentralizedTrainer:
             else:
                 updated_weights = consensus_output
             
-            # Update with no momentum (full update)
-            node.update_weights(updated_weights, momentum=0.0)
+            # Update with no blending coefficient (full update)
+            node.update_weights(updated_weights, _lambda=0.0)
         
         consensus_time = time.time() - start_time
         print(f"Consensus phase took {consensus_time:.2f}s")
-        
         return consensus_time
     
     def _run_evaluation(self, epoch: int) -> np.ndarray:

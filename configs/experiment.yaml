@@ -1,0 +1,29 @@
+name: "tverberg_example"
+consensus_type: "tverberg"
+topology:
+  type: "file"
+  num_nodes: 64
+  degree: 6
+  seed: 42
+  topology_file: "configs/topologies/erdos_renyi.txt"
+# model:
+#   type: "cnn"
+#   dataset: "mnist"
+training:
+  epochs: 200
+  batch_size: 64
+  learning_rate: 0.01
+  momentum: 0.9
+  weight_decay: 0.0005
+  consensus_interval: 1
+  test_interval: 5
+attack:
+  byzantine_fraction: 0.33
+  bad_clients: [41, 58, 45,  7,  6, 43, 11, 30, 34, 23, 63, 26, 27, 19, 25, 35, 14, 39, 55, 52,  4]
+  attack_type: "minmax"
+seed: 42
+data_dir: "./data_splits"
+results_dir: "./results/tverberg"
+projection_dim: 2
+projection_path: "./configs/projection_mats.npz"
+num_gpus: 4

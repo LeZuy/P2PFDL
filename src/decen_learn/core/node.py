@@ -162,7 +162,7 @@ class Node:
         """Aggregate buffered weights using provided aggregator.
         
         Args:
-            aggregator: Aggregator instance (e.g., KrumAggregator)
+            aggregator: Aggregator instance (e.g., TverbergAggregator)
             
         Returns:
             Aggregated weights
@@ -171,18 +171,22 @@ class Node:
             logger.warning(f"[Node {self.id}] No buffered weights to aggregate")
             return copy.deepcopy(self.state.weights)
         
-        # Use projected buffers if available, otherwise project now
-        if not self.state.has_projected_buffers():
-            self.project_buffers()
+        use_projection = getattr(aggregator, "requires_projection", False)
         
-        # Stack projected vectors
-        projected = np.stack(self.state.buffer_projected, axis=0)
+        if use_projection:
+            if not self.state.has_projected_buffers():
+                self.project_buffers()
+            vectors = np.stack(self.state.buffer_projected, axis=0)
+        else:
+            vectors = np.stack([
+                self._flatten_weights(w) for w in self.state.buffer
+            ], axis=0)
         
         # Run aggregation
-        result = aggregator(projected)
+        result = aggregator(vectors)
         
-        # Store projection result
-        self.state.projected_weights = result.vector
+        # Store projection result when applicable
+        self.state.projected_weights = result.vector if use_projection else None
         
         # Store convex coefficients if available (for Tverberg)
         if result.weights is not None:
@@ -196,8 +200,11 @@ class Node:
             # Convex combination (e.g., Tverberg)
             return self._reconstruct_from_coefficients(result.weights)
         else:
-            # Direct vector (e.g., Mean in projected space)
-            return self._reconstruct_from_projection(result.vector)
+            if use_projection:
+                # Direct vector (e.g., Mean in projected space)
+                return self._reconstruct_from_projection(result.vector)
+            # Aggregated vector is already in the original weight space
+            return self._unflatten_weights(result.vector)
     
     def _reconstruct_from_coefficients(
         self,
@@ -240,6 +247,7 @@ class Node:
         # Find convex coefficients via RANSAC or Gilbert's algorithm
         from ..tverberg.ransac import ransac_simplex
         
+        print(f"[Node {self.id}] Reconstructing from {len(self.state.buffer_projected)} vectors")
         projected_neighbors = np.stack(self.state.buffer_projected, axis=0)
         
         result = ransac_simplex(
@@ -247,7 +255,7 @@ class Node:
             q=projected,
             mode="contain_q",
             iterations=10000,
-            eps=1e-9,
+            eps=1e-6,
         )
         
         if result["success"] and result["q_weights_dense"] is not None:
@@ -287,20 +295,20 @@ class Node:
     def update_weights(
         self,
         new_weights: Dict[str, np.ndarray],
-        momentum: float = 0.0
+        _lambda: float = 0.0
     ) -> None:
         """Update model with new weights.
         
         Args:
             new_weights: New weight dictionary
-            momentum: Mixing coefficient (0=full update, 1=no update)
+            _lambda: Blending coefficient (0=full update, 1=no update)
         """
-        if momentum > 0:
+        if _lambda > 0:
             # Blend with current weights
             for name in new_weights:
                 new_weights[name] = (
-                    momentum * self.state.weights[name] +
-                    (1 - momentum) * new_weights[name]
+                    _lambda * self.state.weights[name] +
+                    (1 - _lambda) * new_weights[name]
                 )
         
         self.state.weights = new_weights

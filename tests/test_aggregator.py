@@ -14,7 +14,7 @@ class TestKrumAggregator:
             [10.0, 10.0],  # Outlier
         ])
         
-        agg = KrumAggregator(num_byzantine=1)
+        agg = KrumAggregator(byzantine_fraction=1/3)
         result = agg(vectors)
         
         # Should not select the outlier
@@ -24,25 +24,26 @@ class TestKrumAggregator:
     def test_all_identical(self):
         """Krum should handle identical vectors."""
         vectors = np.ones((5, 10))
-        agg = KrumAggregator(num_byzantine=1)
+        agg = KrumAggregator(byzantine_fraction=1/3)
         result = agg(vectors)
         
         np.testing.assert_array_equal(result.vector, np.ones(10))
     
-    @pytest.mark.parametrize("n,f", [(10, 3), (20, 6), (50, 16)])
+    @pytest.mark.parametrize("n,f", [(10, 1/3), (20, 1/3), (50, 1/3)])
     def test_byzantine_tolerance(self, n, f):
         """Krum should tolerate up to f Byzantine vectors."""
+        nf = int(n * f)
         rng = np.random.default_rng(42)
         
         # Honest vectors clustered around origin
-        honest = rng.normal(0, 0.1, size=(n - f, 2))
+        honest = rng.normal(0, 0.1, size=(n - nf, 2))
         # Byzantine vectors far away
-        byzantine = rng.normal(100, 1, size=(f, 2))
+        byzantine = rng.normal(100, 1, size=(nf, 2))
         
         vectors = np.vstack([honest, byzantine])
         rng.shuffle(vectors)
         
-        agg = KrumAggregator(num_byzantine=f)
+        agg = KrumAggregator(byzantine_fraction=f)
         result = agg(vectors)
         
         # Result should be close to origin

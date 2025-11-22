@@ -2,5 +2,7 @@
 *.png
 /results/
 /*/__pycache__/
+/__pycache__/
 /data_splits/
 /configs/projection_mats.npz
+/slurm/

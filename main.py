@@ -9,7 +9,7 @@ import torch
 
 from decen_learn.core import Node, ByzantineNode, RandomWeightProjector
 from decen_learn.aggregators import get_aggregator
-from decen_learn.attacks import MinMaxAttack
+from decen_learn.attacks import LIEAttack, IPMAttack, MinMaxAttack
 from decen_learn.config import ExperimentConfig
 from decen_learn.training import (
     DecentralizedTrainer,
@@ -21,8 +21,8 @@ from decen_learn.training import (
     verify_byzantine_constraint,
     print_training_summary,
 )
-from model.ResNet_Cifar import ResNet18_CIFAR
-from model.train import get_trainloader, get_testloader
+from decen_learn.models import ResNet18_CIFAR
+from decen_learn.data import get_trainloader, get_testloader
 
 
 def parse_args():
@@ -31,76 +31,158 @@ def parse_args():
         description="Decentralized Byzantine-resilient training"
     )
     parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to YAML config file",
+    )
+    parser.add_argument(
         "--consensus",
         type=str,
-        default="mean",
         choices=["mean", "krum", "tverberg", "trimmed_mean"],
-        help="Consensus aggregation method"
+        help="Override consensus aggregation method"
     )
     parser.add_argument(
         "--num-gpus",
         type=int,
-        default=4,
         help="Maximum number of GPUs to use in parallel"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="Path to YAML config file"
     )
     parser.add_argument(
         "--epochs",
         type=int,
-        default=200,
         help="Number of training epochs"
     )
     parser.add_argument(
         "--num-nodes",
         type=int,
-        default=64,
         help="Number of nodes in network"
     )
     parser.add_argument(
         "--byzantine-fraction",
         type=float,
-        default=0.33,
         help="Fraction of Byzantine nodes"
     )
     parser.add_argument(
         "--topology",
         type=str,
-        default="erdos_renyi",
         choices=["erdos_renyi", "ring", "file"],
         help="Network topology type"
     )
     parser.add_argument(
         "--topology-file",
         type=str,
-        default="./configs/erdos_renyi.txt",
         help="Path to topology file (if topology=file)"
     )
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="./data_splits",
         help="Directory with partitioned data"
     )
     parser.add_argument(
         "--results-dir",
         type=str,
-        default="./results",
         help="Directory for saving results"
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
         help="Random seed"
     )
-    
+    parser.add_argument(
+        "--projection-file",
+        type=str,
+        help="Path to saved projection matrix (.npz). If omitted, uses configs/projection_mats.npz when available."
+    )
     return parser.parse_args()
 
+
+def load_config_from_args(args: argparse.Namespace) -> ExperimentConfig:
+    """Load experiment configuration and apply CLI overrides."""
+    if args.config:
+        config = ExperimentConfig.from_yaml(Path(args.config))
+    else:
+        config = ExperimentConfig()
+    
+    if args.consensus:
+        config.consensus_type = args.consensus
+    if args.num_gpus is not None:
+        config.num_gpus = args.num_gpus
+    if args.epochs is not None:
+        config.training.epochs = args.epochs
+    if args.num_nodes is not None:
+        config.topology.num_nodes = args.num_nodes
+    if args.byzantine_fraction is not None:
+        config.attack.byzantine_fraction = args.byzantine_fraction
+    if args.topology:
+        config.topology.type = args.topology
+    if args.topology_file:
+        config.topology_file = Path(args.topology_file)
+    if args.data_dir:
+        config.data_dir = Path(args.data_dir)
+    if args.results_dir:
+        config.results_dir = Path(args.results_dir)
+    if args.seed is not None:
+        config.seed = args.seed
+        config.topology.seed = args.seed
+    if args.projection_file:
+        config.projection_path = Path(args.projection_file)
+    
+    config._normalize_paths()
+    return config
+
+
+def build_attack(config: ExperimentConfig, num_byzantine: int, num_total: int):
+    """Instantiate attack strategy based on config."""
+    attack_type = (config.attack.attack_type or "minmax").lower()
+    if attack_type == "minmax":
+        return MinMaxAttack(
+            boosting_factor=1.0,
+            gamma_init=20.0,
+            tau=1e-3,
+        )
+    if attack_type == "ipm":
+        return IPMAttack()
+    if attack_type == "lie":
+        return LIEAttack(
+            num_byzantine=num_byzantine,
+            num_total=num_total,
+        )
+    raise ValueError(
+        f"Unsupported attack_type '{config.attack.attack_type}'. "
+        "Choose from ['minmax', 'ipm', 'lie']."
+    )
+
+def load_bad_client_ids(config: ExperimentConfig) -> Optional[list]:
+    """Return explicit bad client ids from config if provided.
+    
+    Supports a list in YAML or a path string to a newline-separated file.
+    """
+    bad_clients = config.attack.bad_clients
+    if not bad_clients:
+        return None
+    
+    if isinstance(bad_clients, str):
+        path = Path(bad_clients)
+        if not path.exists():
+            raise ValueError(f"Bad clients file not found: {path}")
+        with open(path) as f:
+            ids = [int(line.strip()) for line in f if line.strip()]
+    elif isinstance(bad_clients, (list, tuple)):
+        try:
+            ids = [int(x) for x in bad_clients]
+        except ValueError:
+            raise ValueError("bad_clients must be integers or paths to a file.")
+    else:
+        raise ValueError("bad_clients must be a list/tuple or filepath string.")
+    
+    # Deduplicate and keep order
+    seen = set()
+    uniq_ids = []
+    for i in ids:
+        if i not in seen:
+            uniq_ids.append(i)
+            seen.add(i)
+    return uniq_ids
 
 def create_nodes(
     num_nodes: int,
@@ -108,6 +190,7 @@ def create_nodes(
     projector: RandomWeightProjector,
     data_dir: Path,
     config: ExperimentConfig,
+    attack,
 ) -> list:
     """Create network of honest and Byzantine nodes.
     
@@ -117,19 +200,13 @@ def create_nodes(
         projector: Shared weight projector
         data_dir: Data directory
         config: Experiment configuration
+        attack: Instantiated attack strategy
         
     Returns:
         List of nodes
     """
     print(f"\nCreating {num_nodes} nodes...")
     print(f"  Byzantine nodes: {len(bad_indices)}")
-    
-    # Create attack strategy for Byzantine nodes
-    attack = MinMaxAttack(
-        boosting_factor=1.0,
-        gamma_init=20.0,
-        tau=1e-3,
-    )
     
     nodes = []
     for node_id in range(num_nodes):
@@ -217,50 +294,93 @@ def create_topology_matrix(
 def main():
     """Main entry point."""
     args = parse_args()
+    config = load_config_from_args(args)
     
     # Set random seed
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
     
     # Load or create config
-    if args.config:
-        config = ExperimentConfig.from_yaml(Path(args.config))
-    else:
-        config = ExperimentConfig()
-        config.consensus_type = args.consensus
-        config.num_gpus = args.num_gpus
-        config.training.epochs = args.epochs
-        config.topology.num_nodes = args.num_nodes
-        config.attack.byzantine_fraction = args.byzantine_fraction
-        config.data_dir = Path(args.data_dir)
-        config.results_dir = Path(args.results_dir)
+    default_projection_path = Path("configs/projection_mats.npz")
+    
+    # Handle projection path overrides and defaults
+    if config.projection_path is None and default_projection_path.exists():
+        config.projection_path = default_projection_path
+    
+    if config.topology.type == "file" and config.topology_file is None:
+        raise ValueError("topology_file must be provided when topology.type is 'file'")
     
     # Create projector
     print("\nInitializing weight projector...")
     base_model = ResNet18_CIFAR()
-    projector = RandomWeightProjector.from_model(
-        base_model,
-        projection_dim=config.projection_dim,
-        random_state=args.seed,
-    )
-    print(f"✓ Projector created: {base_model.get_num_parameters():,} params → "
-          f"{config.projection_dim}D")
+    base_param_count = base_model.get_num_parameters()
+    projector = None
     
-    # Select Byzantine nodes
-    bad_indices = select_byzantine_nodes(
-        num_nodes=config.topology.num_nodes,
-        byzantine_fraction=config.attack.byzantine_fraction,
-        strategy="random",
-        seed=args.seed,
-    )
+    # Try loading precomputed projection matrix
+    if config.projection_path:
+        proj_path = Path(config.projection_path)
+        if proj_path.exists():
+            projector = RandomWeightProjector.load(proj_path)
+            if projector.original_dim != base_param_count:
+                raise ValueError(
+                    f"Projection matrix dimension mismatch: expected "
+                    f"{base_param_count}, got {projector.original_dim}"
+                )
+            print(f"✓ Loaded projector from {proj_path}: "
+                  f"{base_param_count:,} params → {projector.projection_dim}D")
+        else:
+            print(f"⚠️ Projection file not found at {proj_path}, "
+                  "creating new random projector.")
     
+    # Fallback: create new random projector
+    if projector is None:
+        projector = RandomWeightProjector.from_model(
+            base_model,
+            projection_dim=config.projection_dim,
+            random_state=config.seed,
+        )
+        save_path = config.projection_path or default_projection_path
+        projector.save(save_path)
+        config.projection_path = save_path
+        print(f"✓ Projector created: {base_param_count:,} params → "
+              f"{config.projection_dim}D")
+    
+    # Select Byzantine nodes (use explicit list if provided)
+    bad_indices = load_bad_client_ids(config)
+    if bad_indices is None:
+        bad_indices = select_byzantine_nodes(
+            num_nodes=config.topology.num_nodes,
+            byzantine_fraction=config.attack.byzantine_fraction,
+            strategy="random",
+            seed=config.seed,
+        )
+    else:
+        # Validate provided IDs
+        out_of_range = [
+            i for i in bad_indices
+            if i < 0 or i >= config.topology.num_nodes
+        ]
+        if out_of_range:
+            raise ValueError(
+                f"bad_clients contains ids outside [0, {config.topology.num_nodes - 1}]: "
+                f"{out_of_range}"
+            )
+    
+    topology_seed = config.topology.seed if config.topology.seed is not None else config.seed
     # Create topology
     topology = create_topology_matrix(
         num_nodes=config.topology.num_nodes,
-        topology_type=args.topology,
-        topology_file=args.topology_file,
-        avg_degree=6,
-        seed=args.seed,
+        topology_type=config.topology.type,
+        topology_file=config.topology_file,
+        avg_degree=config.topology.degree,
+        seed=topology_seed,
+    )
+    
+    # Create attack strategy
+    attack = build_attack(
+        config=config,
+        num_byzantine=len(bad_indices),
+        num_total=config.topology.num_nodes,
     )
     
     # Verify Byzantine constraint
@@ -277,6 +397,7 @@ def main():
         projector=projector,
         data_dir=config.data_dir,
         config=config,
+        attack=attack,
     )
     
     # Assign topology

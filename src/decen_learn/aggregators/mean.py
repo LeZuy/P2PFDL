@@ -3,7 +3,7 @@ import numpy as np
 from .base import BaseAggregator, AggregationResult
 
 class MeanAggregator(BaseAggregator):
-    """Simple mean aggregation."""
+    """Simple mean aggregator."""
     
     def aggregate(self, vectors: np.ndarray) -> AggregationResult:
         mean_vec = np.mean(vectors, axis=0)

@@ -1,20 +1,38 @@
 # src/decen_learn/aggregators/krum.py
 import numpy as np
+import warnings
 from .base import BaseAggregator, AggregationResult
+from .geomedian import GeoMedianAggregator
 class KrumAggregator(BaseAggregator):
-    """Multi-Krum aggregation rule."""
+    """Krum aggregator"""
     
-    def __init__(self, num_byzantine: int = 0, num_select: int = 1):
-        super().__init__(num_byzantine)
+    def __init__(
+        self,
+        num_byzantine: int = 0,
+        byzantine_fraction: float = 1/3,
+        num_select: int = 1
+    ):
+        super().__init__(
+            num_byzantine=num_byzantine,
+            byzantine_fraction=byzantine_fraction,
+        )
         self.num_select = num_select
     
     def aggregate(self, vectors: np.ndarray) -> AggregationResult:
         m, d = vectors.shape
-        f = self.num_byzantine
+        f = self.num_byzantine if self.num_byzantine > 0 else int(self.byzantine_fraction * m)
         
         if not (0 <= f < m // 2):
             raise ValueError(f"Invalid f={f} for m={m} vectors")
-       
+        if not (m - f - 2 > 0):
+            warnings.warn(
+                f"f={f}, m={m} violates Krum condition m - f - 2 > 0. "
+                "Fallback to Geo-Median.",
+                RuntimeWarning,
+            )
+            geomed = GeoMedianAggregator()
+            return geomed.aggregate(vectors)
+    
         scores = self._compute_scores(vectors, f)
         selected_idx = int(np.argmin(scores))
         

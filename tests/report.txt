@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.1, pluggy-1.6.0
+rootdir: /home/duy.le004/phd/decen_training
+configfile: pyproject.toml
+collected 7 items
+
+tests/test_aggregator.py .......                                         [100%]
+
+============================== 7 passed in 3.83s ===============================

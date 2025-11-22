@@ -170,7 +170,6 @@ class TestTopologyUtils:
         result = verify_byzantine_constraint(topology, bad_nodes)
         assert result is False
 
-
 class TestDecentralizedTrainer:
     """Test DecentralizedTrainer class."""
     

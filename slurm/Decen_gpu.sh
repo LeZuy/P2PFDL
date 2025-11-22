@@ -7,8 +7,8 @@
 #SBATCH --account=pi_duc.tran
 #SBATCH --time=00-20:00:00
 #SBATCH --mem=80gb
-#SBATCH --error=./results/P2PFDL_krum.err
-#SBATCH --output=./results/P2PFDL_krum.out
+#SBATCH --error=./slurm/P2PFDL.err
+#SBATCH --output=./slurm/P2PFDL.out
 #SBATCH --partition=DGXA100
 #SBATCH --export=HOME
 
@@ -52,7 +52,11 @@ sleep 0
 
 source /share/apps/linux-ubuntu20.04-zen2/anaconda3-2021.05/etc/profile.d/conda.sh
 conda activate p2pdfl
-python main.py --topology file --topology-file configs/topologies/erdos_renyi.txt --num-gpus 4 --epochs 2 --num-nodes 8 --data-dir ./data_splits --results-dir ./results/
+echo "Start nvidia-smi logger"  # để thấy trong stdout
+LOGFILE="${SLURM_SUBMIT_DIR:-$PWD}/nvidia-smi.log"
+( while true; do date; nvidia-smi; sleep 60; done ) >>"$LOGFILE" 2>&1 &
+# export PYTHONPATH="${SLURM_SUBMIT_DIR:-$(pwd)}/src:${PYTHONPATH}"
+python main.py --config configs/experiment.yaml
 
 # Diagnostic/Logging Information
 echo "Finish Run"

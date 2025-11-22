@@ -195,8 +195,8 @@ def verify_byzantine_constraint(
     
     if violations:
         print(f"⚠️  Byzantine constraint violated for {len(violations)} nodes:")
-        for node_id, frac, count in violations[:5]:
-            print(f"  Node {node_id}: {count}/{int(total_neighbors[node_id])} "
+        for node_id, frac, count in violations:
+            print(f"\tNode {node_id}: {count}/{int(total_neighbors[node_id])} "
                   f"= {frac:.2%} bad neighbors")
         return False
     
@@ -307,17 +307,17 @@ def print_training_summary(
     print(f"Experiment: {config.name}")
     print(f"Consensus: {config.consensus_type}")
     print(f"\nNetwork:")
-    print(f"  Total nodes: {len(nodes)}")
-    print(f"  Honest: {len(nodes) - num_byzantine}")
-    print(f"  Byzantine: {num_byzantine} ({100*num_byzantine/len(nodes):.1f}%)")
+    print(f"\tTotal nodes: {len(nodes)}")
+    print(f"\tHonest: {len(nodes) - num_byzantine}")
+    print(f"\tByzantine: {num_byzantine} ({100*num_byzantine/len(nodes):.1f}%)")
     print(f"\nTraining:")
-    print(f"  Epochs: {config.training.epochs}")
-    print(f"  Batch size: {config.training.batch_size}")
-    print(f"  Learning rate: {config.training.learning_rate}")
-    print(f"  Consensus interval: {config.training.consensus_interval}")
+    print(f"\tEpochs: {config.training.epochs}")
+    print(f"\tBatch size: {config.training.batch_size}")
+    print(f"\tLearning rate: {config.training.learning_rate}")
+    print(f"\tConsensus interval: {config.training.consensus_interval}")
     print(f"\nResources:")
-    print(f"  GPUs available: {torch.cuda.device_count()}")
-    print(f"  Max parallel: {config.num_gpus}")
+    print(f"\tGPUs available: {torch.cuda.device_count()}")
+    print(f"\tMax parallel: {config.num_gpus}")
     print(f"\nOutput:")
-    print(f"  Results dir: {config.results_dir / config.consensus_type}")
+    print(f"\tResults dir: {config.results_dir / config.consensus_type}")
     print("="*60 + "\n")
