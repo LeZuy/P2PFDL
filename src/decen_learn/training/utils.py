@@ -194,13 +194,13 @@ def verify_byzantine_constraint(
             violations.append((i, fraction, bad_neighbor_counts[i]))
     
     if violations:
-        print(f"⚠️  Byzantine constraint violated for {len(violations)} nodes:")
+        print(f"Byzantine constraint violated for {len(violations)} nodes:")
         for node_id, frac, count in violations:
             print(f"\tNode {node_id}: {count}/{int(total_neighbors[node_id])} "
                   f"= {frac:.2%} bad neighbors")
         return False
     
-    print(f"✓ Byzantine constraint satisfied (max {max_bad_neighbors_fraction:.1%})")
+    print(f"Byzantine constraint satisfied (max {max_bad_neighbors_fraction:.1%})")
     return True
 
 
@@ -227,6 +227,7 @@ def save_training_metadata(
         'consensus_type': config.consensus_type,
         'epochs': config.training.epochs,
         'batch_size': config.training.batch_size,
+        'eval_batch_size': config.training.eval_batch_size,
         'learning_rate': config.training.learning_rate,
         'projection_dim': config.projection_dim,
     }
@@ -313,6 +314,7 @@ def print_training_summary(
     print(f"\nTraining:")
     print(f"\tEpochs: {config.training.epochs}")
     print(f"\tBatch size: {config.training.batch_size}")
+    print(f"\tTest Batch size: {config.training.eval_batch_size}")
     print(f"\tLearning rate: {config.training.learning_rate}")
     print(f"\tConsensus interval: {config.training.consensus_interval}")
     print(f"\nResources:")

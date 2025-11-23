@@ -9,9 +9,14 @@ topology:
 # model:
 #   type: "cnn"
 #   dataset: "mnist"
+model:
+  type: "resnet18_cifar"
+  dataset: "cifar10"
+  num_classes: 10
+  input_channels: 3
 training:
   epochs: 2
-  batch_size: 64
+  batch_size: 16
   learning_rate: 0.01
   momentum: 0.9
   weight_decay: 0.0005
@@ -26,4 +31,4 @@ data_dir: "./data_splits"
 results_dir: "./results/"
 projection_dim: 2
 projection_path: "./configs/projection_mats.npz"
-num_gpus: 4
+num_gpus: 1

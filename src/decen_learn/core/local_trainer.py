@@ -19,6 +19,7 @@ class LocalTrainer:
     
     def __init__(
         self,
+        node_id: int,
         model: torch.nn.Module,
         dataloader: DataLoader,
         device: torch.device,
@@ -38,6 +39,7 @@ class LocalTrainer:
             weight_decay: L2 regularization
             max_epochs: For scheduler
         """
+        self.node_id = node_id
         self.model = model
         self.dataloader = dataloader
         self.device = device
@@ -49,6 +51,9 @@ class LocalTrainer:
             momentum=momentum,
             weight_decay=weight_decay,
         )
+
+        self.model._optimizer = self.optimizer
+
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,
             T_max=max_epochs
@@ -57,45 +62,54 @@ class LocalTrainer:
         self._current_epoch = 0
     
     def train_epoch(self) -> Tuple[float, float]:
-        """Execute one training epoch.
-        
-        Returns:
-            Tuple of (average_loss, accuracy)
-        """
         self.model.train()
-        self.model.to(self.device)
-        
+        # self.model.to(self.device)
+
         total_loss = 0.0
         correct = 0
         total = 0
-        
+
         for batch_idx, (inputs, targets) in enumerate(self.dataloader):
             inputs = inputs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
-            
-            # Forward pass
+
             self.optimizer.zero_grad()
-            outputs = self.model(inputs)
-            loss = self.criterion(outputs, targets)
-            
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
-            
-            # Track metrics
+            try:
+                print(f"[Node {self.node_id}] trainer.device = {self.device}")
+                print(f"[Node {self.node_id}] inputs.device = {inputs.device}")
+                first_param = next(self.model.parameters())
+                print(f"[Node {self.node_id}] model param device = {first_param.device}")
+
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+                loss.backward()
+                self.optimizer.step()
+            except RuntimeError as e:
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    stats = {
+                        "allocated": torch.cuda.memory_allocated(self.device),
+                        "reserved": torch.cuda.memory_reserved(self.device),
+                        "max_allocated": torch.cuda.max_memory_allocated(self.device),
+                        "max_reserved": torch.cuda.max_memory_reserved(self.device),
+                    }
+                    print(f"[Node {self.node_id}] CUDA runtime error: {e}")
+                    print(f"Memory stats: {stats}")
+                raise
+
             total_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
-        
-        # Update learning rate
+
         self.scheduler.step()
         self._current_epoch += 1
-        
+
         avg_loss = total_loss / len(self.dataloader)
         accuracy = 100.0 * correct / total if total > 0 else 0.0
-        
+
         return avg_loss, accuracy
+
     
     @torch.no_grad()
     def evaluate(

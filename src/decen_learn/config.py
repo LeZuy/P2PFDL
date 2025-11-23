@@ -15,12 +15,19 @@ class TopologyConfig:
 class TrainingConfig:
     epochs: int = 200
     batch_size: int = 64
-    eval_batch_size: int = 256
+    eval_batch_size: int = 16
     learning_rate: float = 0.01
     momentum: float = 0.9
     weight_decay: float = 5e-4
     consensus_interval: int = 1
     test_interval: int = 5
+
+@dataclass
+class ModelConfig:
+    type: str = "resnet18_cifar"
+    dataset: str = "cifar10"
+    num_classes: int = 10
+    input_channels: int = 3
 
 @dataclass
 class AttackConfig:
@@ -35,6 +42,7 @@ class ExperimentConfig:
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     topology_file: Optional[Path] = None
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
     attack: AttackConfig = field(default_factory=AttackConfig)
     seed: int = 42
     data_dir: Path = Path("./data_splits")
@@ -53,6 +61,7 @@ class ExperimentConfig:
         topology_data = data.get("topology", {})
         training_data = data.get("training", {})
         attack_data = data.get("attack", {})
+        model_data = data.get("model", {})
 
         if isinstance(topology_data, dict):
             # Allow users to nest topology_file inside topology, but keep it at root
@@ -64,6 +73,8 @@ class ExperimentConfig:
             data["training"] = TrainingConfig(**training_data)
         if isinstance(attack_data, dict):
             data["attack"] = AttackConfig(**attack_data)
+        if isinstance(model_data, dict):
+            data["model"] = ModelConfig(**model_data)
 
         config = cls(**data)
         config._normalize_paths()

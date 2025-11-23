@@ -1,8 +1,6 @@
 Metadata-Version: 2.4
 Name: decen_learn
 Version: 0.1.0
-Requires-Dist: numpy>=1.24
-Requires-Dist: torch>=1.10.0
 Requires-Dist: scipy>=1.10
 Requires-Dist: scikit-learn>=1.0.0
 Requires-Dist: matplotlib>=3.4.0
@@ -10,7 +8,6 @@ Requires-Dist: networkx>=2.6.0
 Requires-Dist: pyyaml>=5.4.0
 Requires-Dist: cvxpy>=1.1.0
 Requires-Dist: geom-median>=0.1.0
-Requires-Dist: torchvision>=0.24.1
 Requires-Dist: tqdm>=4.67.1
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"

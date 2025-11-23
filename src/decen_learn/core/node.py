@@ -60,6 +60,7 @@ class Node:
         # Training
         device = self.device_manager.get_assigned_device()
         self.trainer = LocalTrainer(
+            node_id = self.id,
             model=model,
             dataloader=dataloader,
             device=device,
@@ -90,6 +91,11 @@ class Node:
         Returns:
             Tuple of (loss, accuracy)
         """
+        allocated = torch.cuda.max_memory_allocated()
+        free = torch.cuda.memory_reserved()
+        print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
+        print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
+        print(f"Device:{self.device}", flush=True)
         device = self.device_manager.acquire(self.model)
         
         loss, accuracy = self.trainer.train_epoch()
@@ -99,6 +105,10 @@ class Node:
         self.state.increment_epoch()
         
         self.device_manager.release(self.model)
+        free, total = torch.cuda.mem_get_info()
+        print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
+        print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
+        print(f"Device:{self.device}", flush=True)
         
         logger.debug(
             f"[Node {self.id}] Epoch {self.state.epoch}: "
