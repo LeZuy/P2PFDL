@@ -329,23 +329,26 @@ if __name__ == "__main__":
     print("Testing Dirichlet partitioning...")
     
     clients, testset = partition_data_dirichlet(
-        num_clients=10,
-        alpha=0.5,
+        num_clients=64,
+        alpha=0.8,
         dataset_name="cifar10",
         seed=42,
     )
     
-    print(f"✓ Created {len(clients)} client datasets")
-    print(f"✓ Test set size: {len(testset)}")
+    print(f"\tCreated {len(clients)} client datasets")
+    print(f"\tTest set size: {len(testset)}")
     
     # Analyze distribution
     stats = analyze_distribution(clients, num_classes=10)
     
     print("\nDistribution statistics:")
-    print(f"  Mean samples per client: {stats['mean_samples']:.1f}")
-    print(f"  Std samples per client: {stats['std_samples']:.1f}")
-    print(f"  Mean classes per client: {stats['classes_per_client'].mean():.1f}")
+    print(f"\tMean samples per client: {stats['mean_samples']:.1f}")
+    print(f"\tStd samples per client: {stats['std_samples']:.1f}")
+    print(f"\tMean classes per client: {stats['classes_per_client'].mean():.1f}")
     
     print("\nSamples per client:")
     for i, count in enumerate(stats['total_samples']):
-        print(f"  Client {i}: {int(count)} samples")
+        print(f"\tClient {i}: {int(count)} samples")
+
+    # Save partitioned data
+    save_partitioned_data(clients, testset)

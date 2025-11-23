@@ -1,0 +1,29 @@
+stats 20
+Sun Nov 23 00:51:24 2025    profile.stats
+
+         448312350 function calls (445919559 primitive calls) in 1047.297 seconds
+
+   Ordered by: cumulative time
+   List reduced from 15782 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   5715/1    0.084    0.000 1047.674 1047.674 {built-in method builtins.exec}
+        1    0.021    0.021 1047.674 1047.674 main.py:1(<module>)
+        1    0.002    0.002 1045.811 1045.811 main.py:294(main)
+        1    0.007    0.007 1037.065 1037.065 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/training/trainer.py:82(train)
+        1    0.001    0.001  490.458  490.458 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/training/trainer.py:312(_run_evaluation)
+       64    0.000    0.000  490.456    7.663 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/core/node.py:110(evaluate)
+       64    0.000    0.000  490.455    7.663 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/utils/_contextlib.py:117(decorate_context)
+       64    0.208    0.003  490.453    7.663 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/core/local_trainer.py:100(evaluate)
+1850260/963340    1.528    0.000  470.764    0.000 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/nn/modules/module.py:1771(_wrapped_call_impl)
+1850260/963340    2.343    0.000  470.049    0.000 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/nn/modules/module.py:1779(_call_impl)
+    11670    0.039    0.000  437.704    0.038 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/models/resnet_cifar.py:51(forward)
+    11670    0.017    0.000  437.609    0.037 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torchvision/models/resnet.py:284(forward)
+    11670    0.303    0.000  437.592    0.037 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torchvision/models/resnet.py:266(_forward_impl)
+81690/46680    0.277    0.000  421.840    0.009 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/nn/modules/container.py:245(forward)
+    93360    5.494    0.000  421.274    0.005 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torchvision/models/resnet.py:89(forward)
+   233400    0.323    0.000  400.623    0.002 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/nn/modules/conv.py:547(forward)
+   233400    0.305    0.000  400.137    0.002 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/torch/nn/modules/conv.py:530(_conv_forward)
+   233400  399.832    0.002  399.832    0.002 {built-in method torch.conv2d}
+        2    0.001    0.001  295.103  147.551 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/training/trainer.py:177(_run_local_training)
+      128    0.046    0.000  295.099    2.305 /home/vnseek/miniconda3/envs/peerfed/lib/python3.10/site-packages/decen_learn/core/node.py:87(train_epoch)

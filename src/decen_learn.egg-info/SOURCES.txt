@@ -8,6 +8,7 @@ src/decen_learn.egg-info/requires.txt
 src/decen_learn.egg-info/top_level.txt
 src/decen_learn/aggregators/__init__.py
 src/decen_learn/aggregators/base.py
+src/decen_learn/aggregators/geomedian.py
 src/decen_learn/aggregators/krum.py
 src/decen_learn/aggregators/mean.py
 src/decen_learn/aggregators/trimmed_mean.py
@@ -28,8 +29,8 @@ src/decen_learn/core/weight_projector.py
 src/decen_learn/data/__init__.py
 src/decen_learn/data/loaders.py
 src/decen_learn/data/partitioning.py
-src/decen_learn/data/poisioning.py
-src/decen_learn/models/__init_.py
+src/decen_learn/data/poisoning.py
+src/decen_learn/models/__init__.py
 src/decen_learn/models/resnet_cifar.py
 src/decen_learn/models/tiny_cnn.py
 src/decen_learn/training/__init__.py
@@ -37,8 +38,8 @@ src/decen_learn/training/callbacks.py
 src/decen_learn/training/trainer.py
 src/decen_learn/training/utils.py
 src/decen_learn/tverberg/__init__.py
+src/decen_learn/tverberg/centerpoint.py
 src/decen_learn/tverberg/ransac.py
-src/decen_learn/tverberg/tverberg.py
 tests/test_aggregator.py
 tests/test_core.py
 tests/test_model_data.py

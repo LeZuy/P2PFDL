@@ -3,6 +3,7 @@
 /results/
 /*/__pycache__/
 /__pycache__/
+/data/
 /data_splits/
 /configs/projection_mats.npz
 /slurm/

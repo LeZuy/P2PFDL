@@ -10,7 +10,7 @@ topology:
 #   type: "cnn"
 #   dataset: "mnist"
 training:
-  epochs: 200
+  epochs: 2
   batch_size: 64
   learning_rate: 0.01
   momentum: 0.9
@@ -23,7 +23,7 @@ attack:
   attack_type: "minmax"
 seed: 42
 data_dir: "./data_splits"
-results_dir: "./results/tverberg"
+results_dir: "./results/"
 projection_dim: 2
 projection_path: "./configs/projection_mats.npz"
 num_gpus: 4

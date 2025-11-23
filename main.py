@@ -413,7 +413,7 @@ def main():
     # Create test loader
     test_loader = get_testloader(
         f"{config.data_dir}/test",
-        batch_size=config.training.batch_size,
+        batch_size=config.training.eval_batch_size,
     )
     
     # Print summary

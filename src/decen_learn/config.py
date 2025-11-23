@@ -15,6 +15,7 @@ class TopologyConfig:
 class TrainingConfig:
     epochs: int = 200
     batch_size: int = 64
+    eval_batch_size: int = 256
     learning_rate: float = 0.01
     momentum: float = 0.9
     weight_decay: float = 5e-4
