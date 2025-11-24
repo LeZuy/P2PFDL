@@ -1,9 +1,15 @@
 ============================= test session starts ==============================
 platform linux -- Python 3.10.19, pytest-9.0.1, pluggy-1.6.0
-rootdir: /home/duy.le004/phd/decen_training
+rootdir: /home/vnseek/phd/peerfed/P2PFDL
 configfile: pyproject.toml
-collected 7 items
+collected 15 items
 
-tests/test_aggregator.py .......                                         [100%]
+tests/test_core.py ...............                                       [100%]
 
-============================== 7 passed in 3.83s ===============================
+=============================== warnings summary ===============================
+tests/test_core.py::TestNode::test_train_epoch
+  /home/vnseek/phd/peerfed/P2PFDL/venv_rocm62/lib/python3.10/site-packages/torch/nn/modules/linear.py:125: UserWarning: Attempting to use hipBLASLt on an unsupported architecture! Overriding blas backend to hipblas (Triggered internally at ../aten/src/ATen/Context.cpp:296.)
+    return F.linear(input, self.weight, self.bias)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 15 passed, 1 warning in 3.07s =========================

@@ -1,9 +1,9 @@
 # src/decen_learn/attacks/ipm.py
 """Inner Product Manipulation (IPM) attack implementation."""
 
-import numpy as np
-import torch
 from typing import Dict, List, Optional, Sequence
+
+import torch
 
 from .base import BaseAttack
 
@@ -35,9 +35,9 @@ class IPMAttack(BaseAttack):
     
     def craft(
         self,
-        honest_weights: List[Dict[str, np.ndarray]],
-        attacker_weights: Dict[str, np.ndarray],
-    ) -> Dict[str, np.ndarray]:
+        honest_weights: List[Dict[str, torch.Tensor]],
+        attacker_weights: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
         """Craft malicious weights using IPM strategy.
         
         Args:
@@ -48,15 +48,16 @@ class IPMAttack(BaseAttack):
             Malicious weight dictionary
         """
         if not honest_weights:
-            return attacker_weights.copy()
+            return self._clone_template(attacker_weights)
         
         # Flatten all honest weights
-        honest_flat = np.stack([
-            self._flatten(w) for w in honest_weights
-        ])
+        honest_flat = torch.stack(
+            [self._flatten(w) for w in honest_weights],
+            dim=0,
+        )
         
         # Compute honest mean
-        honest_mean = honest_flat.mean(axis=0)
+        honest_mean = honest_flat.mean(dim=0)
         
         # Craft malicious update: -eps * honest_mean
         malicious_flat = -self.eps * honest_mean * self.boosting_factor

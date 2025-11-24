@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decen_learn"
+version = "0.1.0"
+dependencies = [
+    "scipy>=1.10",
+    "scikit-learn>=1.0.0",
+    "matplotlib>=3.4.0",
+    "networkx>=2.6.0",
+    "pyyaml>=5.4.0",
+    "cvxpy>=1.1.0",
+    "geom-median>=0.1.0",
+    "tqdm>=4.67.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "mypy>=0.950",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+pythonpath = ["src"]

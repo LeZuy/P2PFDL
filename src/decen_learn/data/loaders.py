@@ -92,6 +92,7 @@ def get_trainloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=False,
     )
     
     return trainloader
@@ -101,7 +102,7 @@ def get_testloader(
     data_path: str,
     batch_size: int = 64,
     dataset_name: str = "cifar10",
-    num_workers: int = 0,
+    num_workers: int = 8,
 ) -> DataLoader:
     """Create test data loader.
     
@@ -127,6 +128,7 @@ def get_testloader(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=True,
     )
     
     return testloader

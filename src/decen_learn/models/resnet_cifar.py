@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+import functools
 
 class ResNet18_CIFAR(nn.Module):
     """ResNet18 architecture adapted for CIFAR datasets.
@@ -28,7 +29,11 @@ class ResNet18_CIFAR(nn.Module):
         super().__init__()
         
         # Start with pretrained=False to avoid ImageNet weights
-        self.model = models.resnet18(weights=None)
+        self.model = models.resnet18(weights=None,
+                                    norm_layer=functools.partial(
+                                        nn.BatchNorm2d, 
+                                        track_running_stats=False),
+                                    )
         
         # Adapt first conv layer for 32x32 input
         # Original: Conv2d(3, 64, kernel_size=7, stride=2, padding=3)

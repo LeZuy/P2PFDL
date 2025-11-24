@@ -1,7 +1,7 @@
 """Device management for efficient GPU usage."""
 
 import torch
-from typing import Optional
+from typing import Optional, Iterable, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ class DeviceManager:
         self,
         node_id: int,
         requested_device: Optional[torch.device] = None,
+        tracked_models: Optional[Iterable[torch.nn.Module]] = None,
     ):
         """Initialize device manager.
         
@@ -30,12 +31,21 @@ class DeviceManager:
         self.node_id = node_id
         self.assigned_device = self._resolve_device(requested_device)
         self._current_device = torch.device("cpu")
+        self._tracked_models: List[torch.nn.Module] = []
+        if tracked_models:
+            for model in tracked_models:
+                self.track(model)
         
         logger.info(
             f"[Node {node_id}] Device manager initialized. "
             f"Assigned: {self.assigned_device}"
         )
     
+    def track(self, model: torch.nn.Module) -> None:
+        """Register a model so release_all() can move it off GPU later."""
+        if model not in self._tracked_models:
+            self._tracked_models.append(model)
+
     def _resolve_device(
         self,
         requested: Optional[torch.device]
@@ -92,10 +102,16 @@ class DeviceManager:
         
         if self._current_device == torch.device("cpu"):
             return  # Already on CPU
-        
+        torch.cuda.synchronize(self._current_device)
         model.to("cpu")
         self._move_optimizer_state(model, torch.device("cpu"))
         self._current_device = torch.device("cpu")
+        # torch.cuda.empty_cache()  
+
+    def release_all(self) -> None:
+        """Release every tracked model back to CPU."""
+        for model in list(self._tracked_models):
+            self.release(model)
     
     def _move_optimizer_state(
         self,

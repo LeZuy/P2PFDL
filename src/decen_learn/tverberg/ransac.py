@@ -1,44 +1,57 @@
-import numpy as np
+import warnings
+
 import cvxpy as cp
+import numpy as np
 from matplotlib import pyplot as plt
-from scipy.optimize import linprog
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.optimize import linprog
 
 def _affine_independent(verts, tol=1e-12):
     """
     verts: (d+1, d). Return True if vertices are affinely independent.
+    Uses QR instead of SVD-based rank to trim overhead.
     """
     d = verts.shape[1]
     if verts.shape[0] != d + 1:
         return False
     A = (verts[:-1] - verts[-1]).T  # shape (d, d)
-    return np.linalg.matrix_rank(A, tol=tol) == d
+    try:
+        _, r = np.linalg.qr(A)
+    except np.linalg.LinAlgError:
+        return False
+    return np.all(np.abs(np.diag(r)) > tol)
+
+def _compute_barycentric_matrix(points, verts, tol=1e-12):
+    """
+    Compute barycentric coordinates for multiple points with respect to verts.
+    Returns array (n_points, d+1) or None if simplex is singular.
+    """
+    pts = np.atleast_2d(np.asarray(points, dtype=float))
+    d = verts.shape[1]
+    if pts.shape[1] != d:
+        raise ValueError("Points must have same dimensionality as verts.")
+    A = (verts[:-1] - verts[-1]).T  # (d, d)
+    rhs = pts - verts[-1]  # (n, d)
+    try:
+        w = np.linalg.solve(A, rhs.T).T  # (n, d)
+    except np.linalg.LinAlgError:
+        return None
+    lam = np.empty((pts.shape[0], d + 1), dtype=float)
+    lam[:, :-1] = w
+    lam[:, -1] = 1.0 - np.sum(w, axis=1)
+    lam[np.abs(lam) < tol] = 0.0
+    return lam
+
 
 def _barycentric_coords(x, verts, tol=1e-12):
     """
     Compute barycentric coordinates of point x wrt simplex defined by verts.
-    verts: (d+1, d)
-    x: (d,)
     Returns lambda (d+1,), or None if simplex is degenerate.
     """
-    d = verts.shape[1]
-    # if verts.shape[0] < d + 1:
-    #     return None
-
-    # Solve: x = v_{d+1} + A * w  with A = [v1 - vd+1, ..., vd - vd+1]
-    A = (verts[:-1] - verts[-1]).T  # (d, d)
-    b = (x - verts[-1])
-    try:
-        # w are first d barycentric coords; lambda_{d+1} = 1 - sum(w)
-        w = np.linalg.solve(A, b)
-    except np.linalg.LinAlgError:
+    lam = _compute_barycentric_matrix(x, verts, tol=tol)
+    if lam is None:
         return None
-    lambdas = np.empty(d + 1)
-    lambdas[:-1] = w
-    lambdas[-1] = 1.0 - np.sum(w)
-    # Small numerical cleanup
-    lambdas[np.abs(lambdas) < tol] = 0.0
-    return lambdas
+    return lam[0]
 
 def qp_optimization(verts, q, tol=1e-12):
     try:
@@ -68,7 +81,26 @@ def _in_simplex(x, verts, eps=0.0, tol=1e-12):
     lam = _barycentric_coords(x, verts, tol=tol)
     if lam is None:
         return False
-    return (lam >= -eps - tol).all() and (abs(lam.sum() - 1.0) <= 10*tol)
+    return (lam >= -eps - tol).all() and (abs(lam.sum() - 1.0) <= 10 * tol)
+
+
+def _in_simplex_batch(X, verts, eps=0.0, tol=1e-12, return_lam=False):
+    """
+    Vectorized check if each point in X is inside simplex conv(verts).
+    X: (n, d) or (d,)
+    verts: (d+1, d)
+    Returns boolean array (n,) and optionally barycentric coordinates.
+    """
+    pts = np.atleast_2d(np.asarray(X, dtype=float))
+    lam = _compute_barycentric_matrix(pts, verts, tol=tol)
+    if lam is None:
+        mask = np.zeros(pts.shape[0], dtype=bool)
+        return (mask, None) if return_lam else mask
+    tol_sum = 10.0 * tol
+    mask = (lam >= -eps - tol).all(axis=1) & (np.abs(np.sum(lam, axis=1) - 1.0) <= tol_sum)
+    if return_lam:
+        return mask, lam
+    return mask
 
 def dense_simplex_weights(X, verts_idx, q, tol=1e-12):
     """Return a dense coefficient vector w of length n such that
@@ -137,7 +169,8 @@ def ransac_simplex(
     eps=0.0,
     min_inliers=0,
     rng=None,
-    early_stop_rounds=None
+    early_stop_rounds=None,
+    batch_size=16
 ):
     """
     RANSAC to find a d+1-vertex simplex that maximizes inliers.
@@ -147,6 +180,7 @@ def ransac_simplex(
         * "contain_q": simplex must contain q; score = #X contained
         * "cover_X":   no q; score = #X contained
     - iterations: number of random trials
+    - batch_size: number of random simplices evaluated together
     - eps: inlier slack on barycentric coords (>= -eps)
     - min_inliers: optional minimal score to accept early
     - rng: np.random.Generator for reproducibility
@@ -170,6 +204,8 @@ def ransac_simplex(
         raise ValueError("mode must be 'contain_q' or 'cover_X'")
     if mode == "contain_q" and q is None:
         raise ValueError("q must be provided in 'contain_q' mode")
+    if q is not None:
+        q = np.asarray(q, dtype=float)
 
     if rng is None:
         rng = np.random.default_rng()
@@ -179,56 +215,98 @@ def ransac_simplex(
         'q_idw_verts': None, 'q_idw_point': None, 'q_idw_weights_dense': None}
     no_improve = 0
 
-    for it in range(iterations):
-        # 1) Sample d+1 distinct points
-        idx = rng.choice(n, size=d+1, replace=False)
-        verts = X[idx]
+    batch_size = max(1, int(batch_size))
+    trials = 0
+    tol = 1e-12
+    while trials < iterations:
+        current_batch = min(batch_size, iterations - trials)
+        trials += current_batch
 
-        # 2) Check affine independence
-        if not _affine_independent(verts):
+        idx_batch = np.empty((current_batch, d + 1), dtype=int)
+        for b in range(current_batch):
+            idx_batch[b] = rng.choice(n, size=d+1, replace=False)
+        verts_batch = X[idx_batch]  # (batch, d+1, d)
+
+        # Filter affine-independent simplices
+        affine_mask = np.array([_affine_independent(v) for v in verts_batch], dtype=bool)
+        if not affine_mask.any():
+            continue
+        verts_batch = verts_batch[affine_mask]
+        idx_batch = idx_batch[affine_mask]
+
+        # Construct A matrices (batch, d, d)
+        A = np.transpose(verts_batch[:, :-1, :] - verts_batch[:, -1:, :], (0, 2, 1))
+
+        # Ensure q lies in simplex when required
+        if mode == "contain_q":
+            rhs_q = (q - verts_batch[:, -1, :])  # (batch, d)
+            try:
+                w_q = np.linalg.solve(A, rhs_q[..., None]).squeeze(-1)
+            except np.linalg.LinAlgError:
+                warnings.warn("Failed to solve barycentric system for q; skipping batch.")
+                continue
+            lam_q = np.empty((w_q.shape[0], d + 1), dtype=float)
+            lam_q[:, :-1] = w_q
+            lam_q[:, -1] = 1.0 - np.sum(w_q, axis=1)
+            contain_mask = (lam_q >= -eps - tol).all(axis=1) & (np.abs(np.sum(lam_q, axis=1) - 1.0) <= 10.0 * tol)
+            if not contain_mask.any():
+                continue
+            verts_batch = verts_batch[contain_mask]
+            idx_batch = idx_batch[contain_mask]
+            A = A[contain_mask]
+
+        if len(verts_batch) == 0:
             continue
 
-        # 3) If contain_q, ensure q is inside
-        if mode == "contain_q":
-            if not _in_simplex(q, verts, eps=eps):
-                continue
+        # Solve for barycentric coords of all X for each simplex in batch
+        rhs = X[None, :, :] - verts_batch[:, None, -1, :]  # (batch, n, d)
+        rhs = np.transpose(rhs, (0, 2, 1))  # (batch, d, n)
+        try:
+            w_all = np.linalg.solve(A, rhs)  # (batch, d, n)
+        except np.linalg.LinAlgError:
+            warnings.warn("Failed to solve barycentric system for samples; skipping batch.")
+            continue
+        w_all = np.transpose(w_all, (0, 2, 1))  # (batch, n, d)
+        lam = np.empty((w_all.shape[0], n, d + 1), dtype=float)
+        lam[..., :-1] = w_all
+        lam[..., -1] = 1.0 - np.sum(w_all, axis=2)
+        inlier_mask = (lam >= -eps - tol).all(axis=2) & (np.abs(np.sum(lam, axis=2) - 1.0) <= 10.0 * tol)
+        scores = inlier_mask.sum(axis=1)
 
-        # 4) Score: count inliers in X
-        #    (vectorized call—loop is OK too for clarity)
-        inliers = []
-        for i in range(n):
-            if _in_simplex(X[i], verts, eps=eps):
-                inliers.append(i)
-        score = len(inliers)
+        if scores.size == 0:
+            continue
+        best_idx_in_batch = int(np.argmax(scores))
+        score = int(scores[best_idx_in_batch])
+        inliers = np.flatnonzero(inlier_mask[best_idx_in_batch])
 
-        # 5) Update best
         if score > best['score']:
             best['score'] = score
-            best['verts'] = verts.copy()
-            best['verts_idx'] = idx.copy()
-            best['inliers_idx'] = np.array(inliers, dtype=int)
-
-            # If q is provided, compute barycentric and inverse-distance weights
+            best['verts'] = verts_batch[best_idx_in_batch].copy()
+            best['verts_idx'] = idx_batch[best_idx_in_batch].copy()
+            best['inliers_idx'] = inliers
             no_improve = 0
         else:
-            no_improve += 1
+            no_improve += current_batch
 
-        # Early exits
+        # Early exit checks
         if min_inliers and best['score'] >= min_inliers:
             break
         if early_stop_rounds and no_improve >= early_stop_rounds:
             break
 
     best['success'] = best['score'] >= 0
-    if q is not None:
+    if q is not None and best['inliers_idx'] is not None and best['inliers_idx'].size:
         inlier_points = X[best['inliers_idx']]
-        inlier_points_excl_verts = np.array([pt for pt in inlier_points if pt not in best['verts']])
-        if len(inlier_points_excl_verts) == 0:
-            inlier_points_excl_verts = inlier_points
+        mask = ~np.isclose(
+            inlier_points[:, None, :],
+            best['verts'][None, :, :]
+        ).all(axis=2).any(axis=1)
+        if not np.any(mask):
+            mask = np.ones(len(inlier_points), dtype=bool)
+        inlier_points_excl_verts = inlier_points[mask]
         best['inliers_excl_verts'] = inlier_points_excl_verts
-        
-        
-        best['inliers_excl_verts_indices'] = np.where(np.isin(X, inlier_points_excl_verts).all(axis=1))[0]
+
+        best['inliers_excl_verts_indices'] = best['inliers_idx'][mask]
         lam = qp_optimization(inlier_points_excl_verts, q)
         best['q_barycentric'] = lam
         if lam is not None:

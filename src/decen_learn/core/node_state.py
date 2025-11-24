@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-import numpy as np
+
+import torch
 
 
 @dataclass
@@ -16,8 +17,8 @@ class NodeState:
     """
     
     # Model parameters
-    weights: Dict[str, np.ndarray] = field(default_factory=dict)
-    projected_weights: Optional[np.ndarray] = None
+    weights: Dict[str, torch.Tensor] = field(default_factory=dict)
+    projected_weights: Optional[torch.Tensor] = None
     
     # Training metrics
     loss: float = 0.0
@@ -25,12 +26,12 @@ class NodeState:
     epoch: int = 0
     
     # Communication buffers
-    buffer: List[Dict[str, np.ndarray]] = field(default_factory=list)
-    buffer_projected: List[np.ndarray] = field(default_factory=list)
+    buffer: List[Dict[str, torch.Tensor]] = field(default_factory=list)
+    buffer_projected: List[torch.Tensor] = field(default_factory=list)
     
     # Consensus state
     last_consensus_round: int = 0
-    consensus_coefficients: Optional[Dict[str, np.ndarray]] = None
+    consensus_coefficients: Optional[Dict[str, torch.Tensor]] = None
     
     def reset_buffers(self) -> None:
         """Clear all communication buffers."""
@@ -58,7 +59,10 @@ class NodeState:
     def to_dict(self) -> Dict:
         """Serialize state to dictionary (for checkpointing)."""
         return {
-            "weights": self.weights.copy(),
+            "weights": {
+                name: tensor.detach().cpu().clone()
+                for name, tensor in self.weights.items()
+            },
             "loss": self.loss,
             "accuracy": self.accuracy,
             "epoch": self.epoch,
@@ -69,7 +73,11 @@ class NodeState:
     def from_dict(cls, data: Dict) -> "NodeState":
         """Restore state from dictionary."""
         state = cls()
-        state.weights = data.get("weights", {})
+        raw_weights = data.get("weights", {})
+        state.weights = {
+            name: torch.as_tensor(values).clone()
+            for name, values in raw_weights.items()
+        }
         state.loss = data.get("loss", 0.0)
         state.accuracy = data.get("accuracy", 0.0)
         state.epoch = data.get("epoch", 0)

@@ -59,8 +59,8 @@ class TestNodeState:
     
     def test_reset_buffers(self):
         state = NodeState()
-        state.buffer = [{"a": np.array([1, 2, 3])}]
-        state.buffer_projected = [np.array([1, 2])]
+        state.buffer = [{"a": torch.tensor([1.0, 2.0, 3.0])}]
+        state.buffer_projected = [torch.tensor([1.0, 2.0])]
         
         state.reset_buffers()
         
@@ -69,7 +69,7 @@ class TestNodeState:
     
     def test_serialization(self):
         state = NodeState()
-        state.weights = {"layer1": np.array([1, 2, 3])}
+        state.weights = {"layer1": torch.tensor([1.0, 2.0, 3.0])}
         state.loss = 0.5
         state.epoch = 10
         
@@ -78,9 +78,9 @@ class TestNodeState:
         
         assert restored.loss == 0.5
         assert restored.epoch == 10
-        np.testing.assert_array_equal(
+        torch.testing.assert_close(
             restored.weights["layer1"],
-            np.array([1, 2, 3])
+            torch.tensor([1.0, 2.0, 3.0])
         )
 
 
@@ -96,7 +96,7 @@ class TestWeightProjector:
         
         # Create dummy weights
         weights = {
-            name: param.detach().numpy()
+            name: param.detach().clone()
             for name, param in simple_model.named_parameters()
         }
         
@@ -116,8 +116,8 @@ class TestWeightProjector:
         
         projected = projector.project(weights)
         
-        expected = np.array([1, 2, 3, 4, 5])
-        np.testing.assert_array_equal(projected, expected)
+        expected = torch.tensor([1, 2, 3, 4, 5])
+        torch.testing.assert_close(projected, expected)
     
     def test_projector_save_load(self, simple_model, tmp_path):
         projector = RandomWeightProjector.from_model(
@@ -134,7 +134,7 @@ class TestWeightProjector:
         loaded = RandomWeightProjector.load(str(save_path))
         
         assert loaded.projection_dim == 3
-        np.testing.assert_array_equal(
+        torch.testing.assert_close(
             loaded.projection_matrix,
             projector.projection_matrix,
         )
@@ -164,7 +164,7 @@ class TestNode:
             dataloader=dummy_dataloader,
         )
         
-        initial_weights = node.state.weights.copy()
+        initial_weights = Node._clone_weight_dict(node.state.weights)
         loss, acc = node.train_epoch()
         
         assert isinstance(loss, float)
@@ -172,7 +172,7 @@ class TestNode:
         assert node.state.epoch == 1
         
         # Weights should change after training
-        assert not np.allclose(
+        assert not torch.allclose(
             list(initial_weights.values())[0],
             list(node.state.weights.values())[0],
         )
@@ -195,7 +195,7 @@ class TestNode:
         # Create fake neighbors
         for _ in range(3):
             fake_weights = {
-                name: param.detach().numpy() + np.random.randn(*param.shape) * 0.1
+                name: param.detach().clone() + 0.1 * torch.randn_like(param)
                 for name, param in simple_model.named_parameters()
             }
             node.receive(fake_weights)
@@ -248,7 +248,7 @@ class TestByzantineNode:
             bad_client_ids=[0],
         )
         
-        initial_weights = node.state.weights.copy()
+        initial_weights = Node._clone_weight_dict(node.state.weights)
         
         # Try to update (should be ignored)
         fake_weights = {
@@ -259,7 +259,7 @@ class TestByzantineNode:
         
         # Weights should not change
         for name in initial_weights:
-            np.testing.assert_array_equal(
+            torch.testing.assert_close(
                 initial_weights[name],
                 node.state.weights[name],
             )

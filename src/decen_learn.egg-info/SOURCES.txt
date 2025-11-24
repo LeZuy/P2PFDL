@@ -44,3 +44,4 @@ tests/test_aggregator.py
 tests/test_core.py
 tests/test_model_data.py
 tests/test_training.py
+tests/test_tverberg.py

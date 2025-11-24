@@ -8,15 +8,6 @@ from model.ResNet_Cifar import ResNet18_CIFAR
 
 def chord_adjacency_matrix(n: int, directed=False):
     """
-    Sinh ma trận kề cho đồ thị có cạnh (i, i + 2^j mod n)
-    như trong mạng Chord / hypercube ring.
-
-    Args:
-        n (int): số node
-        directed (bool): True nếu muốn đồ thị có hướng
-
-    Returns:
-        A (np.ndarray): ma trận kề kích thước n x n
     """
     A = np.zeros((n, n), dtype=int)
     max_pow = int(np.floor(np.log2(n)))
@@ -45,15 +36,6 @@ def ring_lattice_matrix(n: int, degree:int, directed=False):
 
 def erdos_renyi_matrix(n: int, k: int, directed=False, seed: int = None):
     """
-    Sinh ma trận kề cho đồ thị Erdős-Rényi ngẫu nhiên.
-
-    Args:
-        n (int): số node
-        k (int): bậc của đồ thị
-        directed (bool): True nếu muốn đồ thị có hướng
-        seed (int): hạt giống cho bộ sinh số ngẫu nhiên
-    Returns:
-        A (np.ndarray): ma trận kề kích thước n x n
     """
     if seed is not None:
         np.random.seed(seed)
@@ -72,7 +54,6 @@ def erdos_renyi_matrix(n: int, k: int, directed=False, seed: int = None):
     return A
 
 def load_projection(file_path):
-    """Đọc file .npy đã lưu bởi save_projected_model"""
     data = np.load(file_path)  # shape = (num_nodes, num_layers, 2)
     n_nodes, n_layers, dim = data.shape
     assert dim == 2, f"Projection dimension must be 2, got {dim}"
@@ -80,9 +61,6 @@ def load_projection(file_path):
 
 def plot_projection(before, after, layer_idx=0, title_prefix=""):
     """
-    Vẽ tọa độ (2D) của tất cả node trong một layer trước & sau consensus.
-    - before: np.ndarray (n_nodes, n_layers, 2)
-    - after:  np.ndarray (n_nodes, n_layers, 2)
     """
     n_nodes = before.shape[0]
     fig, ax = plt.subplots(figsize=(6,6))
@@ -123,12 +101,11 @@ def plot_projection(before, after, layer_idx=0, title_prefix=""):
     plt.savefig(f"{title_prefix.replace(' ', '_').lower()}_layer_{layer_idx}.png")
 
 def visualize_epoch(epoch=20, layer_idx=0):
-    """Tải 2 file before/after của một epoch và plot"""
     before_path = f"./results/tverberg/proj_weights_before_epoch_{epoch}.npy"
     after_path  = f"./results/tverberg/proj_weights_after_epoch_{epoch}.npy"
     
     if not os.path.exists(before_path) or not os.path.exists(after_path):
-        print(f"❌ Missing files for epoch {epoch}")
+        print(f"Missing files for epoch {epoch}")
         return
     
     before = load_projection(before_path)
@@ -155,8 +132,6 @@ def plot_vectors(node_id, layer):
 
 def count_images_in_split(root_dir):
     """
-    Đếm số ảnh của mỗi class trong các split con.
-    root_dir: thư mục chứa train/ hoặc test/
     """
     summary = defaultdict(Counter)
 
@@ -235,7 +210,7 @@ def count_bad_neighbors(adj, bad_nodes):
 # ======================
 if __name__ == "__main__":
     N = 64
-    B = 7    # ví dụ muốn 8 bad nodes
+    B = 7
 
     adj = np.loadtxt("./configs/chord.txt")
     bad_nodes = choose_bad_nodes_even(N, B)

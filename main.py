@@ -1,10 +1,12 @@
 # main.py (refactored)
 """Entry point using refactored training module."""
 
+import os
+import time
 import argparse
 import numpy as np
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 import torch
 
 from decen_learn.core import Node, ByzantineNode, RandomWeightProjector
@@ -21,7 +23,7 @@ from decen_learn.training import (
     verify_byzantine_constraint,
     print_training_summary,
 )
-from decen_learn.models import ResNet18_CIFAR
+from decen_learn.models import ResNet18_CIFAR, TinyCNN
 from decen_learn.data import get_trainloader, get_testloader
 
 
@@ -131,6 +133,29 @@ def load_config_from_args(args: argparse.Namespace) -> ExperimentConfig:
     return config
 
 
+def build_model_from_config(model_cfg) -> torch.nn.Module:
+    """Instantiate a model based on configuration."""
+    model_type = model_cfg.type.lower()
+    if model_type in {"resnet18", "resnet18_cifar"}:
+        return ResNet18_CIFAR(num_classes=model_cfg.num_classes)
+    if model_type in {"tinycnn", "tiny_cnn", "tiny"}:
+        return TinyCNN(
+            num_classes=model_cfg.num_classes,
+            input_channels=model_cfg.input_channels,
+        )
+    raise ValueError(
+        f"Unknown model type '{model_cfg.type}'. "
+        "Supported: resnet18_cifar, tiny_cnn"
+    )
+
+
+def get_model_factory(model_cfg) -> Callable[[], torch.nn.Module]:
+    """Return factory that creates a fresh model per node."""
+    def factory():
+        return build_model_from_config(model_cfg)
+    return factory
+
+
 def build_attack(config: ExperimentConfig, num_byzantine: int, num_total: int):
     """Instantiate attack strategy based on config."""
     attack_type = (config.attack.attack_type or "minmax").lower()
@@ -191,6 +216,8 @@ def create_nodes(
     data_dir: Path,
     config: ExperimentConfig,
     attack,
+    model_builder: Callable[[], torch.nn.Module],
+    dataset_name: str,
 ) -> list:
     """Create network of honest and Byzantine nodes.
     
@@ -201,6 +228,8 @@ def create_nodes(
         data_dir: Data directory
         config: Experiment configuration
         attack: Instantiated attack strategy
+        model_builder: Callable returning a fresh model instance
+        dataset_name: Dataset identifier for transforms
         
     Returns:
         List of nodes
@@ -209,16 +238,22 @@ def create_nodes(
     print(f"  Byzantine nodes: {len(bad_indices)}")
     
     nodes = []
+    visible = os.environ.get("HIP_VISIBLE_DEVICES")
+    available = min(len(visible.split(",")), torch.cuda.device_count())
+    devices = [torch.device(f"cuda:{i}") for i in range(available)]
+
     for node_id in range(num_nodes):
         # Create model
-        model = ResNet18_CIFAR()
+        model = model_builder()
         
         # Create dataloader
+        client_path = Path(data_dir) / f"client_{node_id}"
         dataloader = get_trainloader(
-            f"{data_dir}/client_{node_id}",
+            str(client_path),
             batch_size=config.training.batch_size,
+            dataset_name=dataset_name,
         )
-        
+        device = devices[node_id % len(devices)]
         # Create node (Byzantine or honest)
         if node_id in bad_indices:
             node = ByzantineNode(
@@ -227,6 +262,7 @@ def create_nodes(
                 projector=projector,
                 dataloader=dataloader,
                 attack=attack,
+                device=device,
                 bad_client_ids=bad_indices,
                 learning_rate=config.training.learning_rate,
                 momentum=config.training.momentum,
@@ -238,6 +274,7 @@ def create_nodes(
                 model=model,
                 projector=projector,
                 dataloader=dataloader,
+                device=device,
                 learning_rate=config.training.learning_rate,
                 momentum=config.training.momentum,
                 weight_decay=config.training.weight_decay,
@@ -300,8 +337,12 @@ def main():
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     
+    # Prepare model builder (allows lightweight models to reduce memory)
+    model_factory = get_model_factory(config.model)
+    
     # Load or create config
-    default_projection_path = Path("configs/projection_mats.npz")
+    model_tag = config.model.type.lower().replace(" ", "_")
+    default_projection_path = Path(f"configs/projection_mats_{model_tag}.npz")
     
     # Handle projection path overrides and defaults
     if config.projection_path is None and default_projection_path.exists():
@@ -312,7 +353,7 @@ def main():
     
     # Create projector
     print("\nInitializing weight projector...")
-    base_model = ResNet18_CIFAR()
+    base_model = model_factory()
     base_param_count = base_model.get_num_parameters()
     projector = None
     
@@ -322,14 +363,19 @@ def main():
         if proj_path.exists():
             projector = RandomWeightProjector.load(proj_path)
             if projector.original_dim != base_param_count:
-                raise ValueError(
-                    f"Projection matrix dimension mismatch: expected "
-                    f"{base_param_count}, got {projector.original_dim}"
+                print(
+                    "[!] Projection matrix dimension mismatch "
+                    f"(expected {base_param_count}, got {projector.original_dim}). "
+                    "Regenerating projection matrix."
                 )
-            print(f"✓ Loaded projector from {proj_path}: "
-                  f"{base_param_count:,} params → {projector.projection_dim}D")
+                projector = None
+            else:
+                print(
+                    f"Loaded projector from {proj_path}: "
+                    f"{base_param_count:,} params → {projector.projection_dim}D"
+                )
         else:
-            print(f"⚠️ Projection file not found at {proj_path}, "
+            print(f"[!] Projection file not found at {proj_path}, "
                   "creating new random projector.")
     
     # Fallback: create new random projector
@@ -342,7 +388,7 @@ def main():
         save_path = config.projection_path or default_projection_path
         projector.save(save_path)
         config.projection_path = save_path
-        print(f"✓ Projector created: {base_param_count:,} params → "
+        print(f"Projector created: {base_param_count:,} params → "
               f"{config.projection_dim}D")
     
     # Select Byzantine nodes (use explicit list if provided)
@@ -398,6 +444,8 @@ def main():
         data_dir=config.data_dir,
         config=config,
         attack=attack,
+        model_builder=model_factory,
+        dataset_name=config.model.dataset,
     )
     
     # Assign topology
@@ -411,9 +459,12 @@ def main():
     )
     
     # Create test loader
+    eval_batch = config.training.eval_batch_size or config.training.batch_size
     test_loader = get_testloader(
         f"{config.data_dir}/test",
-        batch_size=config.training.eval_batch_size,
+        batch_size=eval_batch,
+        dataset_name=config.model.dataset,
+        num_workers=config.training.eval_num_workers,
     )
     
     # Print summary
@@ -425,9 +476,10 @@ def main():
         aggregator=aggregator,
         test_loader=test_loader,
         results_dir=config.results_dir / config.consensus_type,
-        max_parallel_gpu=config.num_gpus,
+        max_parallel_gpu=2,
         consensus_interval=config.training.consensus_interval,
         test_interval=config.training.test_interval,
+        release_interval=config.training.release_interval,
     )
     
     # Run training
@@ -443,4 +495,6 @@ def main():
 
 
 if __name__ == "__main__":
+    start = time.time()
     main()
+    print(f"Total execution time: {time.time() - start:.2f} seconds")

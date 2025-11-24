@@ -1,6 +1,5 @@
 """Honest node implementation for decentralized learning."""
 
-import copy
 from typing import Dict, List, Optional, Tuple
 import torch
 import numpy as np
@@ -11,6 +10,7 @@ from .node_state import NodeState
 from .weight_projector import WeightProjector
 from .local_trainer import LocalTrainer
 from .device_manager import DeviceManager
+from .utils import flatten_weight_dict, unflatten_weight_dict
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +54,11 @@ class Node:
         
         # Core components
         self.model = model
-        self.projector = projector
         self.device_manager = DeviceManager(node_id, device)
         
         # Training
         device = self.device_manager.get_assigned_device()
+        self.projector = projector.to(device)
         self.trainer = LocalTrainer(
             node_id = self.id,
             model=model,
@@ -68,10 +68,41 @@ class Node:
             momentum=momentum,
             weight_decay=weight_decay,
         )
+        self.device_manager.track(self.model)
         
         # State
         self.state = NodeState()
         self._sync_weights_from_model()
+
+    @staticmethod
+    def _clone_weight_dict(
+        weights: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """Return a detached clone of the provided weight dict."""
+        return {
+            name: tensor.detach().clone()
+            for name, tensor in weights.items()
+        }
+
+    @staticmethod
+    def _weights_to_numpy(
+        weights: Dict[str, torch.Tensor]
+    ) -> Dict[str, np.ndarray]:
+        """Convert weight dict to CPU numpy arrays."""
+        return {
+            name: tensor.detach().cpu().numpy()
+            for name, tensor in weights.items()
+        }
+
+    @staticmethod
+    def _weights_from_numpy(
+        weights: Dict[str, np.ndarray]
+    ) -> Dict[str, torch.Tensor]:
+        """Convert numpy weight dict to torch tensors."""
+        return {
+            name: torch.as_tensor(values).clone()
+            for name, values in weights.items()
+        }
     
     @property
     def is_byzantine(self) -> bool:
@@ -91,11 +122,11 @@ class Node:
         Returns:
             Tuple of (loss, accuracy)
         """
-        allocated = torch.cuda.max_memory_allocated()
-        free = torch.cuda.memory_reserved()
-        print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
-        print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
-        print(f"Device:{self.device}", flush=True)
+        # allocated = torch.cuda.max_memory_allocated()
+        # free = torch.cuda.memory_reserved()
+        # print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
+        # print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
+        # print(f"Device:{self.device}", flush=True)
         device = self.device_manager.acquire(self.model)
         
         loss, accuracy = self.trainer.train_epoch()
@@ -105,10 +136,10 @@ class Node:
         self.state.increment_epoch()
         
         self.device_manager.release(self.model)
-        free, total = torch.cuda.mem_get_info()
-        print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
-        print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
-        print(f"Device:{self.device}", flush=True)
+        # free, total = torch.cuda.mem_get_info()
+        # print(f"[Node {self.id}] VRAM used = {(allocated)/1024**2:.1f} MB / {(free)/1024**2:.1f} MB", flush=True)
+        # print(f"Memory snapshot : {torch.cuda.memory_snapshot()}", flush=True)
+        # print(f"Device:{self.device}", flush=True)
         
         logger.debug(
             f"[Node {self.id}] Epoch {self.state.epoch}: "
@@ -136,21 +167,21 @@ class Node:
     
     # ========== Communication ==========
     
-    def prepare_broadcast(self) -> Dict[str, np.ndarray]:
+    def prepare_broadcast(self) -> Dict[str, torch.Tensor]:
         """Prepare weights to send to neighbors.
         
         Returns:
             Deep copy of current weights
         """
-        return copy.deepcopy(self.state.weights)
+        return self._clone_weight_dict(self.state.weights)
     
-    def receive(self, weights: Dict[str, np.ndarray]) -> None:
+    def receive(self, weights: Dict[str, torch.Tensor]) -> None:
         """Receive weights from a neighbor.
         
         Args:
             weights: Weight dictionary from neighbor
         """
-        self.state.buffer.append(copy.deepcopy(weights))
+        self.state.buffer.append(self._clone_weight_dict(weights))
     
     def reset_buffers(self) -> None:
         """Clear all communication buffers."""
@@ -160,15 +191,18 @@ class Node:
     
     def project_buffers(self) -> None:
         """Project all buffered weights to low-dimensional space."""
-        self.state.buffer_projected = [
-            self.projector.project(weights)
-            for weights in self.state.buffer
-        ]
+        projections = []
+        for weights in self.state.buffer:
+            projected = self.projector.project(weights)
+            if not torch.is_tensor(projected):
+                projected = torch.as_tensor(projected)
+            projections.append(projected.detach().clone())
+        self.state.buffer_projected = projections
     
     def aggregate(
         self,
         aggregator
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, torch.Tensor]:
         """Aggregate buffered weights using provided aggregator.
         
         Args:
@@ -179,33 +213,45 @@ class Node:
         """
         if not self.state.buffer:
             logger.warning(f"[Node {self.id}] No buffered weights to aggregate")
-            return copy.deepcopy(self.state.weights)
+            return self._clone_weight_dict(self.state.weights)
         
         use_projection = getattr(aggregator, "requires_projection", False)
         
         if use_projection:
             if not self.state.has_projected_buffers():
                 self.project_buffers()
-            vectors = np.stack(self.state.buffer_projected, axis=0)
+            vectors = torch.stack(self.state.buffer_projected, dim=0)
         else:
-            vectors = np.stack([
-                self._flatten_weights(w) for w in self.state.buffer
-            ], axis=0)
+            vectors = torch.stack(
+                [self._flatten_weights(w) for w in self.state.buffer],
+                dim=0,
+            )
         
         # Run aggregation
         result = aggregator(vectors)
         
         # Store projection result when applicable
-        self.state.projected_weights = result.vector if use_projection else None
+        if use_projection:
+            projected_vec = result.vector
+            if not torch.is_tensor(projected_vec):
+                projected_vec = torch.as_tensor(projected_vec)
+            self.state.projected_weights = projected_vec.detach().cpu().clone()
+        else:
+            self.state.projected_weights = None
         
         # Store convex coefficients if available (for Tverberg)
         if result.weights is not None:
-            self.state.consensus_coefficients = {"__flat__": result.weights}
+            coeffs = result.weights
+            if isinstance(coeffs, torch.Tensor):
+                coeffs = coeffs.detach()
+            self.state.consensus_coefficients = {"__flat__": coeffs}
         
         # Return aggregated weights
         if result.selected_index is not None:
             # Selection-based (e.g., Krum)
-            return copy.deepcopy(self.state.buffer[result.selected_index])
+            return self._clone_weight_dict(
+                self.state.buffer[result.selected_index]
+            )
         elif result.weights is not None:
             # Convex combination (e.g., Tverberg)
             return self._reconstruct_from_coefficients(result.weights)
@@ -218,8 +264,8 @@ class Node:
     
     def _reconstruct_from_coefficients(
         self,
-        coefficients: np.ndarray
-    ) -> Dict[str, np.ndarray]:
+        coefficients,
+    ) -> Dict[str, torch.Tensor]:
         """Reconstruct weights from convex combination coefficients.
         
         Args:
@@ -229,20 +275,27 @@ class Node:
             Reconstructed weight dictionary
         """
         # Stack buffered weights: shape (num_neighbors, total_params)
-        stacked = np.stack([
-            self._flatten_weights(w) for w in self.state.buffer
-        ], axis=0)
+        stacked = torch.stack(
+            [self._flatten_weights(w) for w in self.state.buffer],
+            dim=0,
+        )
         
-        # Weighted sum: alpha @ stacked
-        flat_weights = coefficients @ stacked
+        coeffs = coefficients
+        if not torch.is_tensor(coeffs):
+            coeffs = torch.as_tensor(
+                coeffs,
+                dtype=stacked.dtype,
+                device=stacked.device,
+            )
+        flat_weights = coeffs @ stacked
         
         # Unflatten back to dictionary
         return self._unflatten_weights(flat_weights)
     
     def _reconstruct_from_projection(
         self,
-        projected: np.ndarray
-    ) -> Dict[str, np.ndarray]:
+        projected
+    ) -> Dict[str, torch.Tensor]:
         """Reconstruct weights from low-dimensional projection.
         
         This is an approximation since projection loses information.
@@ -258,20 +311,33 @@ class Node:
         from ..tverberg.ransac import ransac_simplex
         
         print(f"[Node {self.id}] Reconstructing from {len(self.state.buffer_projected)} vectors")
-        projected_neighbors = np.stack(self.state.buffer_projected, axis=0)
+        projected_neighbors = torch.stack(
+            [
+                proj if torch.is_tensor(proj) else torch.as_tensor(proj)
+                for proj in self.state.buffer_projected
+            ],
+            dim=0,
+        ).detach().cpu().numpy()
+        projected_np = (
+            projected.detach().cpu().numpy()
+            if torch.is_tensor(projected)
+            else np.asarray(projected)
+        )
         
         result = ransac_simplex(
             projected_neighbors,
-            q=projected,
+            q=projected_np,
             mode="contain_q",
             iterations=10000,
             eps=1e-6,
         )
         
         if result["success"] and result["q_weights_dense"] is not None:
-            return self._reconstruct_from_coefficients(
-                result["q_weights_dense"]
+            coeffs = torch.as_tensor(
+                result["q_weights_dense"],
+                dtype=torch.float32,
             )
+            return self._reconstruct_from_coefficients(coeffs)
         
         # Fallback: simple mean
         logger.warning(
@@ -279,14 +345,14 @@ class Node:
         )
         return self._mean_of_buffers()
     
-    def _mean_of_buffers(self) -> Dict[str, np.ndarray]:
+    def _mean_of_buffers(self) -> Dict[str, torch.Tensor]:
         """Compute mean of all buffered weights."""
         if not self.state.buffer:
-            return copy.deepcopy(self.state.weights)
+            return self._clone_weight_dict(self.state.weights)
         
         # Initialize with zeros
         result = {
-            name: np.zeros_like(arr)
+            name: torch.zeros_like(arr)
             for name, arr in self.state.buffer[0].items()
         }
         
@@ -300,11 +366,11 @@ class Node:
         for name in result:
             result[name] /= n
         
-        return result
+        return {name: tensor.clone() for name, tensor in result.items()}
     
     def update_weights(
         self,
-        new_weights: Dict[str, np.ndarray],
+        new_weights: Dict[str, torch.Tensor],
         _lambda: float = 0.0
     ) -> None:
         """Update model with new weights.
@@ -321,7 +387,7 @@ class Node:
                     (1 - _lambda) * new_weights[name]
                 )
         
-        self.state.weights = new_weights
+        self.state.weights = self._clone_weight_dict(new_weights)
         self._sync_weights_to_model()
     
     # ========== Weight Management ==========
@@ -329,43 +395,37 @@ class Node:
     def _sync_weights_from_model(self) -> None:
         """Extract weights from PyTorch model to state."""
         self.state.weights = {
-            name: param.detach().cpu().numpy().copy()
+            name: param.detach().cpu().clone()
             for name, param in self.model.named_parameters()
             if param.requires_grad
         }
-        self.state.projected_weights = self.projector.project(
-            self.state.weights
-        )
+        projected = self.projector.project(self.state.weights)
+        if not torch.is_tensor(projected):
+            projected = torch.as_tensor(projected)
+        self.state.projected_weights = projected.detach().cpu().clone()
     
     def _sync_weights_to_model(self) -> None:
         """Load weights from state into PyTorch model."""
         state_dict = self.model.state_dict()
         for name, values in self.state.weights.items():
             if name in state_dict:
-                tensor = torch.from_numpy(values).reshape(
-                    state_dict[name].shape
-                )
-                state_dict[name].copy_(tensor)
+                target = state_dict[name]
+                reshaped = values.to(target.device).reshape(target.shape)
+                target.copy_(reshaped)
     
     def _flatten_weights(
         self,
-        weights: Dict[str, np.ndarray]
-    ) -> np.ndarray:
+        weights: Dict[str, torch.Tensor]
+    ) -> torch.Tensor:
         """Flatten weight dictionary to 1D vector."""
-        return np.concatenate([w.flatten() for w in weights.values()])
+        return flatten_weight_dict(weights)
     
     def _unflatten_weights(
         self,
-        flat: np.ndarray
-    ) -> Dict[str, np.ndarray]:
+        flat: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
         """Reconstruct weight dictionary from flat vector."""
-        result = {}
-        pos = 0
-        for name, arr in self.state.weights.items():
-            size = arr.size
-            result[name] = flat[pos:pos + size].reshape(arr.shape).copy()
-            pos += size
-        return result
+        return unflatten_weight_dict(flat, self.state.weights)
     
     # ========== Utilities ==========
     

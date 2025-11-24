@@ -2,10 +2,10 @@
 """Little Is Enough (LIE) attack implementation."""
 
 import math
-import numpy as np
+from typing import Dict, List, Optional
+
 import torch
 from scipy.stats import norm
-from typing import Dict, List, Optional
 
 from .base import BaseAttack
 
@@ -72,9 +72,9 @@ class LIEAttack(BaseAttack):
     
     def craft(
         self,
-        honest_weights: List[Dict[str, np.ndarray]],
-        attacker_weights: Dict[str, np.ndarray],
-    ) -> Dict[str, np.ndarray]:
+        honest_weights: List[Dict[str, torch.Tensor]],
+        attacker_weights: Dict[str,  torch.Tensor],
+    ) -> Dict[str,  torch.Tensor]:
         """Craft malicious weights using LIE strategy.
         
         Args:
@@ -85,16 +85,17 @@ class LIEAttack(BaseAttack):
             Malicious weight dictionary
         """
         if not honest_weights:
-            return attacker_weights.copy()
+            return self._clone_template(attacker_weights)
         
         # Flatten all honest weights
-        honest_flat = np.stack([
-            self._flatten(w) for w in honest_weights
-        ])
+        honest_flat = torch.stack(
+            [self._flatten(w) for w in honest_weights],
+            dim=0,
+        )
         
         # Compute statistics
-        mu = honest_flat.mean(axis=0)
-        sigma = honest_flat.std(axis=0, ddof=0)
+        mu = honest_flat.mean(dim=0)
+        sigma = honest_flat.std(dim=0, unbiased=False)
         
         # Compute z_max if not provided
         if self.z_max is None:

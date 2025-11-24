@@ -75,10 +75,10 @@ class LocalTrainer:
 
             self.optimizer.zero_grad()
             try:
-                print(f"[Node {self.node_id}] trainer.device = {self.device}")
-                print(f"[Node {self.node_id}] inputs.device = {inputs.device}")
-                first_param = next(self.model.parameters())
-                print(f"[Node {self.node_id}] model param device = {first_param.device}")
+                # print(f"[Node {self.node_id}] trainer.device = {self.device}")
+                # print(f"[Node {self.node_id}] inputs.device = {inputs.device}")
+                # first_param = next(self.model.parameters())
+                # print(f"[Node {self.node_id}] model param device = {first_param.device}")
 
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)

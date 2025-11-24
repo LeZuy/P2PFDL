@@ -13,12 +13,10 @@ def plot_graph_from_adj(A: np.ndarray,
                         bad_nodes=None,
                         seed=42):
     """
-    Vẽ đồ thị từ ma trận kề numpy.
-    bad_nodes: list hoặc set các chỉ số node cần tô đỏ.
     """
     A = np.asarray(A)
     n = A.shape[0]
-    assert A.ndim == 2 and n == A.shape[1], "A phải là ma trận vuông"
+    assert A.ndim == 2 and n == A.shape[1],
 
     # Giữ cạnh có trọng số > threshold
     B = A.copy()

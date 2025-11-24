@@ -1,15 +1,15 @@
 # src/decen_learn/aggregators/base.py
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Tuple
-import numpy as np
+from typing import Optional
+import torch
 
 @dataclass
 class AggregationResult:
     """Standardized output from all aggregators."""
-    vector: np.ndarray
+    vector: torch.Tensor
     selected_index: Optional[int] = None  # For selection-based methods like Krum
-    weights: Optional[np.ndarray] = None  # Convex combination weights
+    weights: Optional[torch.Tensor] = None  # Convex combination weights
     metadata: dict = None
     
     def __post_init__(self):
@@ -31,7 +31,7 @@ class BaseAggregator(ABC):
         self.requires_projection: bool = False
     
     @abstractmethod
-    def aggregate(self, vectors: np.ndarray) -> AggregationResult:
+    def aggregate(self, vectors: torch.Tensor) -> AggregationResult:
         """
         Aggregate input vectors.
         
@@ -43,18 +43,24 @@ class BaseAggregator(ABC):
         """
         pass
     
-    def __call__(self, vectors: np.ndarray) -> AggregationResult:
-        vectors = self._validate_input(vectors)
+    def __call__(self, vectors) -> AggregationResult:
+        tensor = self._validate_input(vectors)
         # If too few vectors, fallback to mean
-        if vectors.shape[0] <= 2:
+        if tensor.shape[0] <= 2:
             return AggregationResult(
-                vector=np.mean(vectors, axis=0),
-                metadata={"fallback": "mean_two_vectors", "n_vectors": vectors.shape[0]},
+                vector=tensor.mean(dim=0),
+                metadata={
+                    "fallback": "mean_two_vectors",
+                    "n_vectors": int(tensor.shape[0]),
+                },
             )
-        return self.aggregate(vectors)
+        return self.aggregate(tensor)
     
-    def _validate_input(self, vectors: np.ndarray) -> np.ndarray:
-        vectors = np.asarray(vectors, dtype=np.float64)
-        if vectors.ndim != 2:
-            raise ValueError(f"Expected 2D array, got shape {vectors.shape}")
-        return vectors
+    def _validate_input(self, vectors) -> torch.Tensor:
+        if torch.is_tensor(vectors):
+            tensor = vectors
+        else:
+            tensor = torch.as_tensor(vectors)
+        if tensor.ndim != 2:
+            raise ValueError(f"Expected 2D array, got shape {tuple(tensor.shape)}")
+        return tensor

@@ -7,7 +7,6 @@ import time
 import copy
 from pathlib import Path
 from typing import List, Optional, Sequence, Callable
-from concurrent.futures import ThreadPoolExecutor
 from collections import deque, defaultdict
 
 import numpy as np
@@ -17,7 +16,6 @@ from torch.utils.data import DataLoader
 from ..core import Node
 from ..aggregators import BaseAggregator
 
-
 class DecentralizedTrainer:
     """Orchestrates decentralized training with periodic consensus.
     
@@ -26,7 +24,7 @@ class DecentralizedTrainer:
     - Execute consensus rounds
     - Manage evaluation
     - Handle callbacks and logging
-    - Optimize parallel execution
+    - Optimize parallel execution (Serialized for stability on Single GPU/ROCm)
     """
     
     def __init__(
@@ -38,6 +36,7 @@ class DecentralizedTrainer:
         max_parallel_gpu: int = 4,
         consensus_interval: int = 1,
         test_interval: int = 5,
+        release_interval: int = 1,
         projection_snapshot_interval: int = 20,
         early_projection_epochs: int = 10,
     ):
@@ -48,9 +47,10 @@ class DecentralizedTrainer:
             aggregator: Aggregation strategy
             test_loader: Test dataloader for evaluation
             results_dir: Directory for saving results
-            max_parallel_gpu: Max GPU nodes to train in parallel
+            max_parallel_gpu: Max GPU nodes to process in a batch (serialized execution)
             consensus_interval: Run consensus every N epochs
             test_interval: Run evaluation every N epochs
+            release_interval: Move tracked models back to CPU every N epochs
             projection_snapshot_interval: Save projections every N epochs
             early_projection_epochs: Save projections for first N epochs
         """
@@ -61,6 +61,7 @@ class DecentralizedTrainer:
         self.max_parallel_gpu = max_parallel_gpu
         self.consensus_interval = consensus_interval
         self.test_interval = test_interval
+        self.release_interval = max(1, release_interval)
         self.projection_snapshot_interval = projection_snapshot_interval
         self.early_projection_epochs = early_projection_epochs
         
@@ -76,7 +77,7 @@ class DecentralizedTrainer:
         
         print(f"Initialized trainer with {len(nodes)} nodes")
         print(f"\tAggregator: {aggregator.__class__.__name__}")
-        print(f"\tMax parallel GPU: {max_parallel_gpu}")
+        print(f"\tMax batched nodes: {max_parallel_gpu}")
         print(f"\tResults dir: {self.results_dir}")
     
     def train(self, epochs: int) -> dict:
@@ -113,6 +114,10 @@ class DecentralizedTrainer:
                 test_metrics = self._run_evaluation(epoch)
                 self.test_metrics_history.append(test_metrics)
             
+            if epoch % self.release_interval == 0:
+                for node in self.nodes:
+                    node.device_manager.release_all()
+
             epoch_time = time.time() - epoch_start
             
             # Print summary
@@ -169,13 +174,11 @@ class DecentralizedTrainer:
             comments="",
             fmt=["%d", "%.6f", "%.6f", "%.6f"],
         )
-        return {
-            'losses': self.losses_history,
-            'test_metrics': self.test_metrics_history,
-        }
     
     def _run_local_training(self, epoch: int) -> np.ndarray:
         """Train all nodes locally for one epoch.
+        
+        IMPORTANT: Executes sequentially to avoid ROCm/GPU context crashes on RDNA3.
         
         Args:
             epoch: Current epoch number
@@ -185,25 +188,18 @@ class DecentralizedTrainer:
         """
         losses = np.zeros(len(self.nodes))
         
-        # Group nodes by device for efficient parallel execution
+       # Group nodes by device
         device_groups = self._group_by_device(self.nodes)
         
         for batch in self._round_robin_batches(device_groups):
-            if len(batch) == 1:
-                # Single node - train directly
-                node = batch[0]
-                loss, _ = node.train_epoch()
-                losses[node.id] = loss
-            else:
-                # Multiple nodes - train in parallel
-                with ThreadPoolExecutor(max_workers=len(batch)) as executor:
-                    futures = {
-                        executor.submit(node.train_epoch): node
-                        for node in batch
-                    }
-                    for future, node in futures.items():
-                        loss, _ = future.result()
-                        losses[node.id] = loss
+            # Process nodes in the batch sequentially
+            for node in batch:
+                try:
+                    loss, _ = node.train_epoch()
+                    losses[node.id] = loss
+                except Exception as e:
+                    print(f"[Epoch {epoch}] Error training node {node.id}: {e}")
+                    raise e
         
         # Save losses
         np.savetxt(
@@ -273,7 +269,9 @@ class DecentralizedTrainer:
         for node in self.nodes:
             if node.is_byzantine:
                 # Byzantine nodes don't aggregate
-                consensus_outputs.append(node.state.weights.copy())
+                consensus_outputs.append(
+                    node._clone_weight_dict(node.state.weights)
+                )
             else:
                 aggregated = node.aggregate(self.aggregator)
                 consensus_outputs.append(aggregated)
@@ -312,6 +310,8 @@ class DecentralizedTrainer:
     def _run_evaluation(self, epoch: int) -> np.ndarray:
         """Evaluate all nodes on test set.
         
+        IMPORTANT: Executes sequentially to avoid ROCm/GPU context crashes.
+        
         Args:
             epoch: Current epoch number
             
@@ -326,23 +326,14 @@ class DecentralizedTrainer:
         
         metrics = np.zeros((len(self.nodes), 3))
         
-        # Group by device for parallel evaluation
+        # Group by device
         device_groups = self._group_by_device(self.nodes)
         
         for batch in self._round_robin_batches(device_groups):
-            if len(batch) == 1:
-                node = batch[0]
+            # Process nodes in the batch sequentially
+            for node in batch:
                 loss, acc = node.evaluate(self.test_loader)
                 metrics[node.id] = [loss, acc, 0.0]
-            else:
-                with ThreadPoolExecutor(max_workers=len(batch)) as executor:
-                    futures = {
-                        executor.submit(node.evaluate, self.test_loader): node
-                        for node in batch
-                    }
-                    for future, node in futures.items():
-                        loss, acc = future.result()
-                        metrics[node.id] = [loss, acc, 0.0]
         
         # Save metrics
         np.savetxt(
@@ -369,19 +360,22 @@ class DecentralizedTrainer:
             return
         
         first_proj = self.nodes[0].state.projected_weights
-        if first_proj is None or len(first_proj) == 0:
+        if first_proj is None or first_proj.numel() == 0:
             return
         
-        proj_dim = len(first_proj)
+        proj_dim = int(first_proj.numel())
         num_nodes = len(self.nodes)
         
         # For now, assume single flattened layer
         # Shape: (num_nodes, 1, proj_dim)
-        projected_array = np.zeros((num_nodes, 1, proj_dim))
+        projected_array = np.zeros((num_nodes, 1, proj_dim), dtype=np.float32)
         
         for i, node in enumerate(self.nodes):
-            if node.state.projected_weights is not None:
-                projected_array[i, 0, :] = node.state.projected_weights
+            proj = node.state.projected_weights
+            if proj is not None:
+                projected_array[i, 0, :] = (
+                    proj.detach().cpu().view(-1).numpy()
+                )
         
         filename = f"proj_weights_{stage}_epoch_{epoch + 1}.npy"
         np.save(self.results_dir / filename, projected_array)
@@ -399,7 +393,13 @@ class DecentralizedTrainer:
                 continue
             
             # Stack projected payloads
-            vectors = np.stack(node.state.buffer_projected, axis=0)
+            vectors = torch.stack(
+                [
+                    proj if torch.is_tensor(proj) else torch.as_tensor(proj)
+                    for proj in node.state.buffer_projected
+                ],
+                dim=0,
+            ).detach().cpu().numpy()
             payloads[node.id] = {"__flat__": vectors}
         
         filename = f"payloads_epoch_{epoch + 1}.npy"
@@ -441,13 +441,11 @@ class DecentralizedTrainer:
     ):
         """Yield batches selecting at most one node per device.
         
-        This ensures we don't overload any single GPU.
-        
         Args:
             device_groups: List of deques of nodes grouped by device
             
         Yields:
-            Lists of nodes to process in parallel
+            Lists of nodes to process in the current step
         """
         limit = max(1, int(self.max_parallel_gpu))
         
@@ -525,4 +523,5 @@ def create_trainer_from_config(
         max_parallel_gpu=config.num_gpus,
         consensus_interval=config.training.consensus_interval,
         test_interval=config.training.test_interval,
+        release_interval=config.training.release_interval,
     )

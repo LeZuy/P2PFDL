@@ -1,9 +1,7 @@
 """Byzantine (malicious) node implementation."""
 
-import copy
 from typing import Dict, List, Optional
 import torch
-import numpy as np
 from torch.utils.data import DataLoader
 import logging
 
@@ -62,7 +60,8 @@ class ByzantineNode(Node):
             weight_decay=weight_decay,
         )
         
-        self._attack = attack
+        device_assigned = self.device
+        self._attack = attack.to(device_assigned)
         self._bad_client_ids = set(bad_client_ids)
         self._boosting_factor = boosting_factor
         logger.info(
@@ -80,7 +79,7 @@ class ByzantineNode(Node):
     def prepare_broadcast(
         self,
         processes: Optional[List[Node]] = None
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, torch.Tensor]:
         """Craft malicious weights to broadcast to neighbors.
         
         Args:
@@ -96,16 +95,11 @@ class ByzantineNode(Node):
             for neighbor_id in self.neighbors:
                 neighbor = processes[neighbor_id]
                 if not neighbor.is_byzantine:
-                    honest_weights.append(
-                        copy.deepcopy(neighbor.state.weights)
-                    )
+                    honest_weights.append(neighbor.state.weights)
         
         # If no honest neighbors or no access to processes, use buffered weights
         if not honest_weights and self.state.buffer:
-            honest_weights = [
-                w for w in self.state.buffer
-                # Simple heuristic: assume buffers from self are malicious
-            ]
+            honest_weights = [w for w in self.state.buffer]
         
         # Fallback: return own weights if no information available
         if not honest_weights:
@@ -113,7 +107,7 @@ class ByzantineNode(Node):
                 f"[Byzantine {self.id}] No honest weights available, "
                 "returning own weights"
             )
-            return copy.deepcopy(self.state.weights)
+            return self._clone_weight_dict(self.state.weights)
         
         # Craft malicious weights using attack strategy
         try:
@@ -141,13 +135,13 @@ class ByzantineNode(Node):
                 f"[Byzantine {self.id}] Attack crafting failed: {e}. "
                 "Returning own weights."
             )
-            return copy.deepcopy(self.state.weights)
+            return self._clone_weight_dict(self.state.weights)
     
     def _boost_weights(
         self,
-        weights: Dict[str, np.ndarray],
+        weights: Dict[str, torch.Tensor],
         factor: float
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, torch.Tensor]:
         """Apply boosting factor to weights.
         
         Args:
@@ -158,11 +152,11 @@ class ByzantineNode(Node):
             Boosted weights
         """
         return {
-            name: arr * factor
-            for name, arr in weights.items()
+            name: tensor * factor
+            for name, tensor in weights.items()
         }
     
-    def receive(self, weights: Dict[str, np.ndarray]) -> None:
+    def receive(self, weights: Dict[str,  torch.Tensor]) -> None:
         """Receive weights from a neighbor.
         
         Byzantine nodes may selectively ignore certain messages.
@@ -172,7 +166,7 @@ class ByzantineNode(Node):
     
     def update_weights(
         self,
-        new_weights: Dict[str, np.ndarray],
+        new_weights: Dict[str, torch.Tensor],
         momentum: float = 0.0
     ) -> None:
         """Byzantine nodes ignore consensus updates to preserve malicious state.
@@ -187,7 +181,7 @@ class ByzantineNode(Node):
         # Intentionally do nothing
         pass
     
-    def aggregate(self, aggregator) -> Dict[str, np.ndarray]:
+    def aggregate(self, aggregator) -> Dict[str, torch.Tensor]:
         """Byzantine nodes don't aggregate - they return their own weights.
         
         Args:
@@ -196,7 +190,7 @@ class ByzantineNode(Node):
         Returns:
             Own weights
         """
-        return copy.deepcopy(self.state.weights)
+        return self._clone_weight_dict(self.state.weights)
     
     # ========== Training (Optional Poisoning) ==========
     

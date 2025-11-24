@@ -1,8 +1,9 @@
 # src/decen_learn/aggregators/krum.py
-import numpy as np
 import warnings
+import torch
 from .base import BaseAggregator, AggregationResult
 from .geomedian import GeoMedianAggregator
+
 class KrumAggregator(BaseAggregator):
     """Krum aggregator"""
     
@@ -18,7 +19,7 @@ class KrumAggregator(BaseAggregator):
         )
         self.num_select = num_select
     
-    def aggregate(self, vectors: np.ndarray) -> AggregationResult:
+    def aggregate(self, vectors: torch.Tensor) -> AggregationResult:
         m, d = vectors.shape
         f = self.num_byzantine if self.num_byzantine > 0 else int(self.byzantine_fraction * m)
         
@@ -34,29 +35,33 @@ class KrumAggregator(BaseAggregator):
             return geomed.aggregate(vectors)
     
         scores = self._compute_scores(vectors, f)
-        selected_idx = int(np.argmin(scores))
+        selected_idx = int(torch.argmin(scores).item())
         
         return AggregationResult(
-            vector=vectors[selected_idx].copy(),
+            vector=vectors[selected_idx].clone(),
             selected_index=selected_idx,
-            metadata={"scores": scores}
+            metadata={"scores": scores.detach().cpu().numpy()}
         )
     
-    def _compute_scores(self, vectors: np.ndarray, f: int) -> np.ndarray:
+    def _compute_scores(self, vectors: torch.Tensor, f: int) -> torch.Tensor:
         m = vectors.shape[0]
         nb = m - f - 2
         
-        sq_norms = np.sum(vectors ** 2, axis=1, keepdims=True)
-        dists = sq_norms + sq_norms.T - 2.0 * (vectors @ vectors.T)
-        np.fill_diagonal(dists, 0.0)
-        np.maximum(dists, 0.0, out=dists)
+        vec = vectors
+        if vec.dtype != torch.float64:
+            vec = vec.to(torch.float64)
+        sq_norms = torch.sum(vec ** 2, dim=1, keepdim=True)
+        dists = sq_norms + sq_norms.T - 2.0 * (vec @ vec.T)
+        dists = torch.clamp(dists, min=0.0)
+        dists.fill_diagonal_(0.0)
         
         if nb <= 0:
-            return dists.sum(axis=1)
+            return dists.sum(dim=1).to(vectors.dtype)
     
-        scores = np.zeros(m)
+        scores = torch.empty(m, device=vectors.device, dtype=torch.float64)
         for i in range(m):
-            d_i = np.delete(dists[i], i)
-            scores[i] = np.sum(np.partition(d_i, nb - 1)[:nb])
+            d_i = torch.cat([dists[i, :i], dists[i, i+1:]])
+            topk = torch.topk(d_i, k=nb, largest=False).values
+            scores[i] = topk.sum()
         
-        return scores
+        return scores.to(vectors.dtype)

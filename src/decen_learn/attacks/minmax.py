@@ -2,7 +2,7 @@
 """MinMax attack implementation."""
 
 from typing import Dict, List, Callable, Tuple, Optional
-import numpy as np
+
 import torch
 
 from .base import BaseAttack
@@ -54,9 +54,9 @@ class MinMaxAttack(BaseAttack):
     
     def craft(
         self,
-        honest_weights: List[Dict[str, np.ndarray]],
-        attacker_weights: Dict[str, np.ndarray],
-    ) -> Dict[str, np.ndarray]:
+        honest_weights: List[Dict[str, torch.Tensor]],
+        attacker_weights: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
         """Craft malicious weights using MinMax strategy.
         
         Args:
@@ -67,15 +67,16 @@ class MinMaxAttack(BaseAttack):
             Malicious weight dictionary
         """
         if not honest_weights:
-            return attacker_weights.copy()
+            return self._clone_template(attacker_weights)
         
         # Flatten all weights
-        honest_flat = np.stack([
-            self._flatten(w) for w in honest_weights
-        ])
+        honest_flat = torch.stack(
+            [self._flatten(w) for w in honest_weights],
+            dim=0,
+        )
         
         # Compute reference point (mean)
-        v_ref = honest_flat.mean(axis=0)
+        v_ref = honest_flat.mean(dim=0)
         
         # Compute perturbation direction
         perturb_dir = self._compute_perturbation_direction(
@@ -104,9 +105,9 @@ class MinMaxAttack(BaseAttack):
     
     def _compute_perturbation_direction(
         self,
-        vectors: np.ndarray,
+        vectors: torch.Tensor,
         kind: str
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         """Compute perturbation direction based on strategy."""
         if kind == "auto":
             return self._perturb_inverse_std(vectors)
@@ -119,71 +120,65 @@ class MinMaxAttack(BaseAttack):
         else:
             raise ValueError(f"Unknown perturb_kind: {kind}")
     
-    def _perturb_inverse_unit(self, vectors: np.ndarray) -> np.ndarray:
+    def _perturb_inverse_unit(self, vectors: torch.Tensor) -> torch.Tensor:
         """Negative normalized mean direction."""
-        v_bar = vectors.mean(axis=0)
-        norm = np.linalg.norm(v_bar)
+        v_bar = vectors.mean(dim=0)
+        norm = torch.linalg.norm(v_bar)
         if norm < 1e-12:
-            return np.zeros_like(v_bar)
+            return torch.zeros_like(v_bar)
         return -v_bar / norm
     
-    def _perturb_inverse_std(self, vectors: np.ndarray) -> np.ndarray:
+    def _perturb_inverse_std(self, vectors: torch.Tensor) -> torch.Tensor:
         """Negative normalized standard deviation direction."""
-        std = vectors.std(axis=0, ddof=0)
-        if np.allclose(std, 0):
+        std = vectors.std(dim=0, unbiased=False)
+        if torch.allclose(std, torch.zeros_like(std)):
             return self._perturb_inverse_unit(vectors)
-        norm = np.linalg.norm(std)
+        norm = torch.linalg.norm(std)
         if norm < 1e-12:
-            return np.zeros_like(std)
+            return torch.zeros_like(std)
         return -std / norm
     
-    def _perturb_inverse_sign(self, vectors: np.ndarray) -> np.ndarray:
+    def _perturb_inverse_sign(self, vectors: torch.Tensor) -> torch.Tensor:
         """Negative normalized sign direction."""
-        mu = vectors.mean(axis=0)
-        s = -np.sign(mu)
+        mu = vectors.mean(dim=0)
+        s = -torch.sign(mu)
         zero_idx = s == 0
         if zero_idx.any():
-            s[zero_idx] = np.random.rand(zero_idx.sum()) - 0.5
-        norm = np.linalg.norm(s)
+            s[zero_idx] = torch.rand(zero_idx.sum()) - 0.5
+        norm = torch.linalg.norm(s)
         if norm < 1e-12:
-            return np.zeros_like(s)
+            return torch.zeros_like(s)
         return s / norm
     
     def _check_minmax(
         self,
-        vectors: np.ndarray,
-        v_m: np.ndarray
+        vectors: torch.Tensor,
+        v_m: torch.Tensor
     ) -> bool:
         """Check minmax oracle constraint."""
-        dists = np.linalg.norm(
-            vectors[:, None, :] - vectors[None, :, :],
-            axis=2
-        )
-        R_max = float(np.max(dists))
-        dist_to_m = np.linalg.norm(vectors - v_m[None, :], axis=1)
-        max_dist = float(np.max(dist_to_m))
+        dists = torch.linalg.norm( vectors[:, None, :] - vectors[None, :, :], dim=2)
+        R_max = float(torch.max(dists))
+        dist_to_m = torch.linalg.norm(vectors - v_m[None, :], dim=1)
+        max_dist = float(torch.max(dist_to_m))
         return max_dist <= (R_max + 1e-12)
     
     def _check_minsum(
         self,
-        vectors: np.ndarray,
-        v_m: np.ndarray
+        vectors: torch.Tensor,
+        v_m: torch.Tensor
     ) -> bool:
         """Check minsum oracle constraint."""
-        dists = np.linalg.norm(
-            vectors[:, None, :] - vectors[None, :, :],
-            axis=2
-        )
-        S_max = float(np.max(np.sum(dists ** 2, axis=1)))
-        sum_m = float(np.sum(np.linalg.norm(vectors - v_m[None, :], axis=1) ** 2))
+        dists = torch.linalg.norm( vectors[:, None, :] - vectors[None, :, :], dim=2)
+        S_max = float(torch.max(torch.sum(dists ** 2, dim=1)))
+        sum_m = float(torch.sum(torch.linalg.norm(vectors - v_m[None, :], dim=1) ** 2))
         return sum_m <= (S_max + 1e-12)
     
     def _optimize_gamma(
         self,
-        vectors: np.ndarray,
-        perturb_dir: np.ndarray,
-        oracle: Callable[[np.ndarray, np.ndarray], bool],
-        v_ref: np.ndarray,
+        vectors: torch.Tensor,
+        perturb_dir: torch.Tensor,
+        oracle: Callable[[torch.Tensor, torch.Tensor], bool],
+        v_ref: torch.Tensor,
     ) -> float:
         """Binary search for maximum valid gamma."""
         g = float(self.gamma_init)

@@ -14,13 +14,15 @@ class TopologyConfig:
 @dataclass
 class TrainingConfig:
     epochs: int = 200
-    batch_size: int = 64
-    eval_batch_size: int = 16
+    batch_size: int = 128
+    eval_batch_size: int = 256
+    eval_num_workers: int = 4
     learning_rate: float = 0.01
     momentum: float = 0.9
     weight_decay: float = 5e-4
     consensus_interval: int = 1
     test_interval: int = 5
+    release_interval: int = 1
 
 @dataclass
 class ModelConfig:
@@ -49,7 +51,7 @@ class ExperimentConfig:
     results_dir: Path = Path("./results")
     projection_dim: int = 2
     projection_path: Optional[Path] = None
-    num_gpus: int = 4
+    num_gpus: int = 2
     
     @classmethod
     def from_yaml(cls, path: Path) -> "ExperimentConfig":
