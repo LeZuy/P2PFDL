@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 import copy
 from pathlib import Path
-from typing import List, Optional, Sequence, Callable
+from typing import List, Optional, Sequence, Callable, Dict
 from collections import deque, defaultdict
 
 import numpy as np
@@ -39,6 +39,7 @@ class DecentralizedTrainer:
         release_interval: int = 1,
         projection_snapshot_interval: int = 20,
         early_projection_epochs: int = 10,
+        blending_lambda: float = 0.0,
     ):
         """Initialize trainer.
         
@@ -64,6 +65,7 @@ class DecentralizedTrainer:
         self.release_interval = max(1, release_interval)
         self.projection_snapshot_interval = projection_snapshot_interval
         self.early_projection_epochs = early_projection_epochs
+        self.blending_lambda = blending_lambda
         
         self.results_dir.mkdir(parents=True, exist_ok=True)
         
@@ -109,7 +111,7 @@ class DecentralizedTrainer:
                 print(f"Consensus time: {consensus_time:.2f}s")
             
             # ===== Evaluation Phase =====
-            if epoch % self.test_interval == 0:
+            if epoch % self.test_interval == 0 or epoch == epochs - 1:
                 self.test_epochs.append(epoch)
                 test_metrics = self._run_evaluation(epoch)
                 self.test_metrics_history.append(test_metrics)
@@ -122,7 +124,7 @@ class DecentralizedTrainer:
             
             # Print summary
             if epoch % 5 == 0:
-                avg_loss = np.mean(losses)
+                avg_loss = np.nanmean(losses)
                 print(
                     f"Epoch {epoch+1:3d}/{epochs} | "
                     f"Loss: {avg_loss:.4f} | "
@@ -145,7 +147,7 @@ class DecentralizedTrainer:
             return
 
         losses_array = np.array(self.losses_history)
-        avg_train_losses = losses_array.mean(axis=1)
+        avg_train_losses = np.nanmean(losses_array, axis=1)
 
         # Initialize with NaNs for epochs without evaluation
         test_loss_means = np.full(epochs, np.nan)
@@ -153,7 +155,7 @@ class DecentralizedTrainer:
 
         for epoch, metrics in zip(self.test_epochs, self.test_metrics_history):
             # metrics shape: (num_nodes, 3) -> [loss, acc, asr]
-            mean_metrics = metrics.mean(axis=0)
+            mean_metrics = np.nanmean(metrics, axis=0)
             test_loss_means[epoch] = mean_metrics[0]
             test_acc_means[epoch] = mean_metrics[1]
 
@@ -186,7 +188,7 @@ class DecentralizedTrainer:
         Returns:
             Array of training losses for each node
         """
-        losses = np.zeros(len(self.nodes))
+        losses = np.full(len(self.nodes), np.nan)
         
        # Group nodes by device
         device_groups = self._group_by_device(self.nodes)
@@ -194,13 +196,17 @@ class DecentralizedTrainer:
         for batch in self._round_robin_batches(device_groups):
             # Process nodes in the batch sequentially
             for node in batch:
-                try:
-                    loss, _ = node.train_epoch()
-                    losses[node.id] = loss
-                except Exception as e:
-                    print(f"[Epoch {epoch}] Error training node {node.id}: {e}")
-                    raise e
-        
+                if node.is_byzantine:
+                    losses[node.id] = 0.0
+                    continue  # Byzantine nodes skip training but record neutral loss
+                else:
+                    try:
+                        loss, _ = node.train_epoch()
+                        losses[node.id] = loss
+                    except Exception as e:
+                        print(f"[Epoch {epoch}] Error training node {node.id}: {e}")
+                        raise e
+            
         # Save losses
         np.savetxt(
             self.results_dir / f"loss_epoch_{epoch + 1}.txt",
@@ -295,13 +301,13 @@ class DecentralizedTrainer:
             ):
                 # Reconstruct from convex combination
                 updated_weights = node._reconstruct_from_coefficients(
-                    node.state.consensus_coefficients.get("__flat__")
+                    node.state.consensus_coefficients
                 )
             else:
                 updated_weights = consensus_output
             
             # Update with no blending coefficient (full update)
-            node.update_weights(updated_weights, _lambda=0.0)
+            node.update_weights(updated_weights, blending_lambda=self.blending_lambda)
         
         consensus_time = time.time() - start_time
         print(f"Consensus phase took {consensus_time:.2f}s")
@@ -324,7 +330,7 @@ class DecentralizedTrainer:
             print("No test loader provided, skipping evaluation")
             return np.zeros((len(self.nodes), 3))
         
-        metrics = np.zeros((len(self.nodes), 3))
+        metrics = np.full((len(self.nodes), 3), np.nan)
         
         # Group by device
         device_groups = self._group_by_device(self.nodes)
@@ -332,8 +338,11 @@ class DecentralizedTrainer:
         for batch in self._round_robin_batches(device_groups):
             # Process nodes in the batch sequentially
             for node in batch:
-                loss, acc = node.evaluate(self.test_loader)
-                metrics[node.id] = [loss, acc, 0.0]
+                if node.is_byzantine:
+                    metrics[node.id] = np.nan  # Byzantine nodes skip evaluation
+                else:
+                    loss, acc = node.evaluate(self.test_loader)
+                    metrics[node.id] = [loss, acc, 0.0]
         
         # Save metrics
         np.savetxt(
@@ -343,7 +352,7 @@ class DecentralizedTrainer:
         )
         
         # Print summary
-        avg_acc = np.mean(metrics[:, 1])
+        avg_acc = np.nanmean(metrics[:, 1])
         print(f"Average accuracy: {avg_acc:.2f}%")
         
         return metrics
@@ -360,22 +369,52 @@ class DecentralizedTrainer:
             return
         
         first_proj = self.nodes[0].state.projected_weights
-        if first_proj is None or first_proj.numel() == 0:
+        if first_proj is None:
             return
-        
-        proj_dim = int(first_proj.numel())
         num_nodes = len(self.nodes)
-        
-        # For now, assume single flattened layer
-        # Shape: (num_nodes, 1, proj_dim)
-        projected_array = np.zeros((num_nodes, 1, proj_dim), dtype=np.float32)
-        
-        for i, node in enumerate(self.nodes):
-            proj = node.state.projected_weights
-            if proj is not None:
-                projected_array[i, 0, :] = (
-                    proj.detach().cpu().view(-1).numpy()
+        if isinstance(first_proj, dict):
+            layer_names = list(first_proj.keys())
+            layer_dims = [int(first_proj[name].numel()) for name in layer_names]
+            uniform_dim = len(set(layer_dims)) == 1
+            if uniform_dim:
+                proj_dim = layer_dims[0] if layer_dims else 0
+                projected_array = np.zeros(
+                    (num_nodes, len(layer_names), proj_dim),
+                    dtype=np.float32,
                 )
+                for i, node in enumerate(self.nodes):
+                    proj = node.state.projected_weights or {}
+                    for j, name in enumerate(layer_names):
+                        vec = proj.get(name)
+                        if vec is None:
+                            continue
+                        projected_array[i, j, :] = (
+                            vec.detach().cpu().view(-1).numpy()
+                        )
+            else:
+                total_dim = sum(layer_dims)
+                projected_array = np.zeros((num_nodes, 1, total_dim), dtype=np.float32)
+                for i, node in enumerate(self.nodes):
+                    proj = node.state.projected_weights or {}
+                    cursor = 0
+                    flat = np.zeros(total_dim, dtype=np.float32)
+                    for name, dim in zip(layer_names, layer_dims):
+                        vec = proj.get(name)
+                        if vec is not None:
+                            flat[cursor:cursor+dim] = (
+                                vec.detach().cpu().view(-1).numpy()
+                            )
+                        cursor += dim
+                    projected_array[i, 0, :] = flat
+        else:
+            proj_dim = int(first_proj.numel())
+            projected_array = np.zeros((num_nodes, 1, proj_dim), dtype=np.float32)
+            for i, node in enumerate(self.nodes):
+                proj = node.state.projected_weights
+                if proj is not None:
+                    projected_array[i, 0, :] = (
+                        proj.detach().cpu().view(-1).numpy()
+                    )
         
         filename = f"proj_weights_{stage}_epoch_{epoch + 1}.npy"
         np.save(self.results_dir / filename, projected_array)
@@ -391,16 +430,20 @@ class DecentralizedTrainer:
         for node in self.nodes:
             if not node.state.buffer_projected:
                 continue
-            
-            # Stack projected payloads
-            vectors = torch.stack(
-                [
-                    proj if torch.is_tensor(proj) else torch.as_tensor(proj)
-                    for proj in node.state.buffer_projected
-                ],
-                dim=0,
-            ).detach().cpu().numpy()
-            payloads[node.id] = {"__flat__": vectors}
+            layer_payloads: Dict[str, np.ndarray] = {}
+            layer_names = node.state.buffer_projected[0].keys()
+            for name in layer_names:
+                stacked = torch.stack(
+                    [
+                        proj[name]
+                        if torch.is_tensor(proj[name])
+                        else torch.as_tensor(proj[name])
+                        for proj in node.state.buffer_projected
+                    ],
+                    dim=0,
+                ).detach().cpu().numpy()
+                layer_payloads[name] = stacked
+            payloads[node.id] = layer_payloads
         
         filename = f"payloads_epoch_{epoch + 1}.npy"
         np.save(self.results_dir / filename, payloads, allow_pickle=True)

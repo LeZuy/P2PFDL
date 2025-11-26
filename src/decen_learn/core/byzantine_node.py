@@ -61,7 +61,8 @@ class ByzantineNode(Node):
         )
         
         device_assigned = self.device
-        self._attack = attack.to(device_assigned)
+        attack.set_device(device_assigned)
+        self._attack = attack
         self._bad_client_ids = set(bad_client_ids)
         self._boosting_factor = boosting_factor
         logger.info(

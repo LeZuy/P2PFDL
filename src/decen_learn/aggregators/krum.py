@@ -21,10 +21,19 @@ class KrumAggregator(BaseAggregator):
     
     def aggregate(self, vectors: torch.Tensor) -> AggregationResult:
         m, d = vectors.shape
-        f = self.num_byzantine if self.num_byzantine > 0 else int(self.byzantine_fraction * m)
-        
-        if not (0 <= f < m // 2):
-            raise ValueError(f"Invalid f={f} for m={m} vectors")
+        requested_f = (
+            self.num_byzantine
+            if self.num_byzantine > 0
+            else int(self.byzantine_fraction * m)
+        )
+        max_f = max(0, (m // 2) - 1)
+        if requested_f > max_f:
+            warnings.warn(
+                f"Krum received too few vectors (m={m}) for requested f={requested_f}; "
+                f"clamping to f={max_f}.",
+                RuntimeWarning,
+            )
+        f = min(requested_f, max_f)
         if not (m - f - 2 > 0):
             warnings.warn(
                 f"f={f}, m={m} violates Krum condition m - f - 2 > 0. "

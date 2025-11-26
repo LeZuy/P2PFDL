@@ -1,5 +1,5 @@
-name: "tverberg_example"
-consensus_type: "tverberg"
+name: "optimal run"
+consensus_type: "mean"
 topology:
   type: "file"
   num_nodes: 64
@@ -15,22 +15,24 @@ model:
   num_classes: 10
   input_channels: 3
 training:
-  epochs: 2
+  epochs: 200
   batch_size: 128
   eval_batch_size: 256
-  learning_rate: 0.01
+  learning_rate: 0.1
   momentum: 0.9
   weight_decay: 0.0005
   consensus_interval: 1
   test_interval: 10
   release_interval: 3
+  blending_lambda: 0.0
 attack:
-  byzantine_fraction: 0.33
-  bad_clients: [41, 58, 45,  7,  6, 43, 11, 30, 34, 23, 63, 26, 27, 19, 25, 35, 14, 39, 55, 52,  4]
+  byzantine_fraction: 0.0
+  # bad_clients: [41, 58, 45,  7,  6, 43, 11, 30, 34, 23, 63, 26, 27, 19, 25, 35, 14, 39, 55, 52,  4]
+  bad_clients: []
   attack_type: "minmax"
 seed: 42
 data_dir: "./data_splits"
-results_dir: "./results/"
+results_dir: "./results/optimal/"
 projection_dim: 2
 projection_path: "./configs/projection_mats.npz"
 num_gpus: 2

@@ -3,6 +3,7 @@
 
 import os
 import time
+import shutil
 import argparse
 import numpy as np
 from pathlib import Path
@@ -337,6 +338,12 @@ def main():
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     
+    # Clear results directory if it exists
+    results_path = config.results_dir / config.consensus_type
+    if os.path.exists(results_path):
+        shutil.rmtree(results_path)
+    os.makedirs(results_path, exist_ok=True)
+
     # Prepare model builder (allows lightweight models to reduce memory)
     model_factory = get_model_factory(config.model)
     
@@ -394,12 +401,13 @@ def main():
     # Select Byzantine nodes (use explicit list if provided)
     bad_indices = load_bad_client_ids(config)
     if bad_indices is None:
-        bad_indices = select_byzantine_nodes(
-            num_nodes=config.topology.num_nodes,
-            byzantine_fraction=config.attack.byzantine_fraction,
-            strategy="random",
-            seed=config.seed,
-        )
+        bad_indices = []
+        # bad_indices = select_byzantine_nodes(
+        #     num_nodes=config.topology.num_nodes,
+        #     byzantine_fraction=config.attack.byzantine_fraction,
+        #     strategy="random",
+        #     seed=config.seed,
+        # )
     else:
         # Validate provided IDs
         out_of_range = [
