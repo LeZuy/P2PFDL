@@ -18,7 +18,7 @@ class NodeState:
     
     # Model parameters
     weights: Dict[str, torch.Tensor] = field(default_factory=dict)
-    projected_weights: Optional[torch.Tensor] = None
+    projected_weights: Optional[Dict[str, torch.Tensor]] = None
     
     # Training metrics
     loss: float = 0.0
@@ -27,7 +27,7 @@ class NodeState:
     
     # Communication buffers
     buffer: List[Dict[str, torch.Tensor]] = field(default_factory=list)
-    buffer_projected: List[torch.Tensor] = field(default_factory=list)
+    buffer_projected: List[Dict[str, torch.Tensor]] = field(default_factory=list)
     
     # Consensus state
     last_consensus_round: int = 0

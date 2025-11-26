@@ -187,16 +187,17 @@ def verify_byzantine_constraint(
     # Check constraint
     violations = []
     for i in range(n):
-        if total_neighbors[i] == 0:
+        if bad_mask[i] or total_neighbors[i] == 0:
             continue
-        fraction = bad_neighbor_counts[i] / total_neighbors[i]
+        effective_degree = total_neighbors[i] + 1  # include self-loop for honest nodes
+        fraction = bad_neighbor_counts[i] / effective_degree
         if fraction > max_bad_neighbors_fraction + 1e-6:
-            violations.append((i, fraction, bad_neighbor_counts[i]))
+            violations.append((i, fraction, bad_neighbor_counts[i], effective_degree))
     
     if violations:
         print(f"Byzantine constraint violated for {len(violations)} nodes:")
-        for node_id, frac, count in violations:
-            print(f"\tNode {node_id}: {count}/{int(total_neighbors[node_id])} "
+        for node_id, frac, count, degree in violations:
+            print(f"\tNode {node_id}: {count}/{int(degree)} "
                   f"= {frac:.2%} bad neighbors")
         return False
     

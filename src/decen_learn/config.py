@@ -23,6 +23,7 @@ class TrainingConfig:
     consensus_interval: int = 1
     test_interval: int = 5
     release_interval: int = 1
+    blending_lambda: float = 0.2
 
 @dataclass
 class ModelConfig:

@@ -54,6 +54,8 @@ class LocalTrainer:
 
         self.model._optimizer = self.optimizer
 
+        self.model.to(self.device)
+
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,
             T_max=max_epochs
@@ -102,7 +104,7 @@ class LocalTrainer:
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-        self.scheduler.step()
+        # self.scheduler.step()
         self._current_epoch += 1
 
         avg_loss = total_loss / len(self.dataloader)

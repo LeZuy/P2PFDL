@@ -106,6 +106,23 @@ class TestWeightProjector:
         assert projected.shape == (2,)
         assert projector.get_projection_dim() == 2
     
+    def test_random_projector_layerwise(self, simple_model):
+        projector = RandomWeightProjector.from_model(
+            simple_model,
+            projection_dim=3,
+            random_state=7,
+        )
+        weights = {
+            name: param.detach().clone()
+            for name, param in simple_model.named_parameters()
+        }
+        per_layer = projector.project_layerwise(weights)
+        assert set(per_layer.keys()) == set(weights.keys())
+        for proj in per_layer.values():
+            assert proj.shape == (3,)
+        combined = torch.stack(list(per_layer.values()), dim=0).sum(dim=0)
+        torch.testing.assert_close(combined, projector.project(weights))
+    
     def test_identity_projector(self):
         projector = IdentityProjector()
         
@@ -118,6 +135,23 @@ class TestWeightProjector:
         
         expected = torch.tensor([1, 2, 3, 4, 5])
         torch.testing.assert_close(projected, expected)
+    
+    def test_identity_projector_layerwise(self):
+        projector = IdentityProjector()
+        weights = {
+            "layer1": torch.tensor([[1.0, 2.0]]),
+            "layer2": torch.tensor([3.0, 4.0, 5.0]),
+        }
+        per_layer = projector.project_layerwise(weights)
+        assert set(per_layer.keys()) == set(weights.keys())
+        torch.testing.assert_close(
+            per_layer["layer1"],
+            torch.tensor([1.0, 2.0]),
+        )
+        torch.testing.assert_close(
+            per_layer["layer2"],
+            torch.tensor([3.0, 4.0, 5.0]),
+        )
     
     def test_projector_save_load(self, simple_model, tmp_path):
         projector = RandomWeightProjector.from_model(
@@ -206,6 +240,17 @@ class TestNode:
         
         assert isinstance(aggregated, dict)
         assert len(aggregated) > 0
+        for name, tensor in aggregated.items():
+            stacked = torch.stack(
+                [weights[name] for weights in node.state.buffer],
+                dim=0,
+            )
+            torch.testing.assert_close(
+                tensor,
+                stacked.mean(dim=0),
+                rtol=1e-5,
+                atol=1e-6,
+            )
 
 
 class TestByzantineNode:
