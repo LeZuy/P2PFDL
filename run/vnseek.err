@@ -1,4 +1,0 @@
-/home/vnseek/phd/peerfed/P2PFDL/venv_rocm62/lib/python3.10/site-packages/torch/nn/modules/linear.py:125: UserWarning: Attempting to use hipBLASLt on an unsupported architecture! Overriding blas backend to hipblas (Triggered internally at ../aten/src/ATen/Context.cpp:296.)
-  return F.linear(input, self.weight, self.bias)
-/home/vnseek/phd/peerfed/P2PFDL/venv_rocm62/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
-  warnings.warn(
