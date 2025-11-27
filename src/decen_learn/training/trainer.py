@@ -39,6 +39,7 @@ class DecentralizedTrainer:
         release_interval: int = 1,
         projection_snapshot_interval: int = 20,
         early_projection_epochs: int = 10,
+        enable_global_attack: bool = False,
     ):
         """Initialize trainer.
         
@@ -53,6 +54,8 @@ class DecentralizedTrainer:
             release_interval: Move tracked models back to CPU every N epochs
             projection_snapshot_interval: Save projections every N epochs
             early_projection_epochs: Save projections for first N epochs
+            enable_global_attack: Allow Byzantine nodes to view all honest weights
+                when crafting malicious updates
         """
         self.nodes = nodes
         self.aggregator = aggregator
@@ -64,6 +67,7 @@ class DecentralizedTrainer:
         self.release_interval = max(1, release_interval)
         self.projection_snapshot_interval = projection_snapshot_interval
         self.early_projection_epochs = early_projection_epochs
+        self.enable_global_attack = enable_global_attack
         
         self.results_dir.mkdir(parents=True, exist_ok=True)
         
@@ -121,13 +125,13 @@ class DecentralizedTrainer:
             epoch_time = time.time() - epoch_start
             
             # Print summary
-            if epoch % 5 == 0:
-                avg_loss = np.mean(losses)
-                print(
-                    f"Epoch {epoch+1:3d}/{epochs} | "
-                    f"Loss: {avg_loss:.4f} | "
-                    f"Time: {epoch_time:.2f}s"
-                )
+            # if epoch % 5 == 0:
+            #     avg_loss = np.mean(losses)
+            #     print(
+            #         f"Epoch {epoch+1:3d}/{epochs} | "
+            #         f"Loss: {avg_loss:.4f} | "
+            #         f"Time: {epoch_time:.2f}s"
+            #     )
         
         print(f"\n{'='*60}")
         print("Training complete!")
@@ -202,11 +206,11 @@ class DecentralizedTrainer:
                     raise e
         
         # Save losses
-        np.savetxt(
-            self.results_dir / f"loss_epoch_{epoch + 1}.txt",
-            losses,
-            fmt="%.4f"
-        )
+        # np.savetxt(
+        #     self.results_dir / f"loss_epoch_{epoch + 1}.txt",
+        #     losses,
+        #     fmt="%.4f"
+        # )
         
         return losses
     
@@ -225,8 +229,28 @@ class DecentralizedTrainer:
         # Step 1: Reset buffers
         for node in self.nodes:
             node.reset_buffers()
+            if node.is_byzantine and hasattr(node, "set_global_honest_cache"):
+                node.set_global_honest_cache(None)
         
         # Step 2: Prepare broadcasts
+        if self.enable_global_attack:
+            global_honest = [
+                Node._clone_weight_dict(n.state.weights)
+                for n in self.nodes
+                if not n.is_byzantine
+            ]
+        else:
+            global_honest = None
+        if global_honest is not None:
+            for n in self.nodes:
+                if (
+                    n.is_byzantine
+                    and hasattr(n, "set_global_honest_cache")
+                    and hasattr(n, "_attack")
+                    and hasattr(n._attack, "craft_global")
+                ):
+                    n.set_global_honest_cache(global_honest)
+
         broadcasts = {}
         for node in self.nodes:
             if node.is_byzantine:
@@ -336,11 +360,11 @@ class DecentralizedTrainer:
                 metrics[node.id] = [loss, acc, 0.0]
         
         # Save metrics
-        np.savetxt(
-            self.results_dir / f"test_results_epoch_{epoch + 1}.txt",
-            metrics,
-            fmt="%.4f"
-        )
+        # np.savetxt(
+        #     self.results_dir / f"test_results_epoch_{epoch + 1}.txt",
+        #     metrics,
+        #     fmt="%.4f"
+        # )
         
         # Print summary
         avg_acc = np.mean(metrics[:, 1])
@@ -524,4 +548,5 @@ def create_trainer_from_config(
         consensus_interval=config.training.consensus_interval,
         test_interval=config.training.test_interval,
         release_interval=config.training.release_interval,
+        enable_global_attack=getattr(config.attack, "global_attack", False),
     )

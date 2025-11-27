@@ -58,6 +58,9 @@ class LocalTrainer:
             self.optimizer,
             T_max=max_epochs
         )
+        # self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        #     self.optimizer, milestones=[150, 200], gamma=0.2
+        # )
         
         self._current_epoch = 0
     

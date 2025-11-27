@@ -1,68 +1,90 @@
 # src/decen_learn/models/resnet_cifar.py
-"""ResNet18 adapted for CIFAR-10/100 (32x32 images)."""
+"""ResNet for CIFAR-10/100 (32x32 images)."""
 
 import torch
 import torch.nn as nn
+import torch.nn.init as init
+import torch.nn.functional as F
 import torchvision.models as models
 
-import functools
+from torch.autograd import Variable
 
-class ResNet18_CIFAR(nn.Module):
-    """ResNet18 architecture adapted for CIFAR datasets.
-    
-    Key modifications from standard ImageNet ResNet18:
-    - Smaller initial conv (3x3 instead of 7x7)
-    - Stride 1 in first conv (no downsampling)
-    - Remove max pooling layer
-    - Adjust final FC layer for 10 classes
-    
-    These changes are necessary because CIFAR images are 32x32
-    instead of ImageNet's 224x224.
-    """
-    
-    def __init__(self, num_classes: int = 10):
-        """Initialize ResNet18 for CIFAR.
-        
-        Args:
-            num_classes: Number of output classes (10 for CIFAR-10, 100 for CIFAR-100)
-        """
-        super().__init__()
-        
-        # Start with pretrained=False to avoid ImageNet weights
-        self.model = models.resnet18(weights=None,
-                                    norm_layer=functools.partial(
-                                        nn.BatchNorm2d, 
-                                        track_running_stats=False),
-                                    )
-        
-        # Adapt first conv layer for 32x32 input
-        # Original: Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
-        # CIFAR:    Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
-        self.model.conv1 = nn.Conv2d(
-            3, 64, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            bias=False
-        )
-        
-        # Remove max pooling (would downsample too aggressively for 32x32)
-        self.model.maxpool = nn.Identity()
-        
-        # Adjust final fully-connected layer for num_classes
-        in_features = self.model.fc.in_features
-        self.model.fc = nn.Linear(in_features, num_classes)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
-        
-        Args:
-            x: Input tensor of shape (batch_size, 3, 32, 32)
-            
-        Returns:
-            Logits of shape (batch_size, num_classes)
-        """
-        return self.model(x)
+def _weights_init(m):
+    classname = m.__class__.__name__
+    #print(classname)
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        init.kaiming_normal_(m.weight)
+
+class LambdaLayer(nn.Module):
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1, option='A'):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != planes:
+            if option == 'A':
+                """
+                For CIFAR10 ResNet paper uses option A.
+                """
+                self.shortcut = LambdaLayer(lambda x:
+                                            F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes//4, planes//4), "constant", 0))
+            elif option == 'B':
+                self.shortcut = nn.Sequential(
+                        nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                        nn.BatchNorm2d(self.expansion * planes)
+                )
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+
+class ResNet(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=10):
+        super(ResNet, self).__init__()
+        self.in_planes = 16
+
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.linear = nn.Linear(64, num_classes)
+
+        self.apply(_weights_init)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = F.avg_pool2d(out, out.size()[3])
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
     
     def get_num_parameters(self) -> int:
         """Return total number of trainable parameters."""
@@ -70,28 +92,24 @@ class ResNet18_CIFAR(nn.Module):
     
     def __repr__(self) -> str:
         num_params = self.get_num_parameters()
-        return f"ResNet18_CIFAR(num_params={num_params:,})"
+        return f"ResNet_CIFAR(num_params={num_params:,})"
 
 
-def create_resnet18_cifar(num_classes: int = 10, pretrained: bool = False) -> ResNet18_CIFAR:
-    """Factory function for creating ResNet18_CIFAR.
+def ResNet20(num_classes=10) -> ResNet:
+    """Factory function for creating ResNet20.
     
     Args:
         num_classes: Number of output classes
         pretrained: Whether to use pretrained weights (not implemented)
         
     Returns:
-        ResNet18_CIFAR model
+        ResNet model
     """
-    if pretrained:
-        raise NotImplementedError("Pretrained weights not available for CIFAR variant")
-    
-    return ResNet18_CIFAR(num_classes=num_classes)
-
+    return ResNet(BasicBlock, [3, 3, 3], num_classes)
 
 if __name__ == "__main__":
     # Test model creation and forward pass
-    model = ResNet18_CIFAR(num_classes=10)
+    model = ResNet20()
     print(model)
     
     # Test with dummy input

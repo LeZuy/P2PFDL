@@ -23,7 +23,7 @@ from decen_learn.training import (
     verify_byzantine_constraint,
     print_training_summary,
 )
-from decen_learn.models import ResNet18_CIFAR, TinyCNN
+from decen_learn.models import ResNet20, TinyCNN
 from decen_learn.data import get_trainloader, get_testloader
 
 
@@ -63,6 +63,11 @@ def parse_args():
         "--byzantine-fraction",
         type=float,
         help="Fraction of Byzantine nodes"
+    )
+    parser.add_argument(
+        "--global-attack",
+        action="store_true",
+        help="Allow Byzantine nodes to craft attacks using all honest nodes",
     )
     parser.add_argument(
         "--topology",
@@ -115,6 +120,8 @@ def load_config_from_args(args: argparse.Namespace) -> ExperimentConfig:
         config.topology.num_nodes = args.num_nodes
     if args.byzantine_fraction is not None:
         config.attack.byzantine_fraction = args.byzantine_fraction
+    if getattr(args, "global_attack", False):
+        config.attack.global_attack = True
     if args.topology:
         config.topology.type = args.topology
     if args.topology_file:
@@ -136,8 +143,8 @@ def load_config_from_args(args: argparse.Namespace) -> ExperimentConfig:
 def build_model_from_config(model_cfg) -> torch.nn.Module:
     """Instantiate a model based on configuration."""
     model_type = model_cfg.type.lower()
-    if model_type in {"resnet18", "resnet18_cifar"}:
-        return ResNet18_CIFAR(num_classes=model_cfg.num_classes)
+    if model_type in {"resnet20", "resnet20_cifar"}:
+        return ResNet20(num_classes=model_cfg.num_classes)
     if model_type in {"tinycnn", "tiny_cnn", "tiny"}:
         return TinyCNN(
             num_classes=model_cfg.num_classes,
@@ -145,7 +152,7 @@ def build_model_from_config(model_cfg) -> torch.nn.Module:
         )
     raise ValueError(
         f"Unknown model type '{model_cfg.type}'. "
-        "Supported: resnet18_cifar, tiny_cnn"
+        "Supported: resnet20_cifar, tiny_cnn"
     )
 
 
@@ -394,12 +401,13 @@ def main():
     # Select Byzantine nodes (use explicit list if provided)
     bad_indices = load_bad_client_ids(config)
     if bad_indices is None:
-        bad_indices = select_byzantine_nodes(
-            num_nodes=config.topology.num_nodes,
-            byzantine_fraction=config.attack.byzantine_fraction,
-            strategy="random",
-            seed=config.seed,
-        )
+        bad_indices = []
+        # bad_indices = select_byzantine_nodes(
+        #     num_nodes=config.topology.num_nodes,
+        #     byzantine_fraction=config.attack.byzantine_fraction,
+        #     strategy="random",
+        #     seed=config.seed,
+        # )
     else:
         # Validate provided IDs
         out_of_range = [
@@ -480,6 +488,7 @@ def main():
         consensus_interval=config.training.consensus_interval,
         test_interval=config.training.test_interval,
         release_interval=config.training.release_interval,
+        enable_global_attack=config.attack.global_attack,
     )
     
     # Run training

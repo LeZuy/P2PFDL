@@ -60,7 +60,7 @@ class IPMAttack(BaseAttack):
         honest_mean = honest_flat.mean(dim=0)
         
         # Craft malicious update: -eps * honest_mean
-        malicious_flat = -self.eps * honest_mean * self.boosting_factor
+        malicious_flat = -self.eps * honest_mean
         
         # Unflatten back to dictionary structure
         return self._unflatten(malicious_flat, attacker_weights)

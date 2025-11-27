@@ -64,6 +64,7 @@ class ByzantineNode(Node):
         self._attack = attack.to(device_assigned)
         self._bad_client_ids = set(bad_client_ids)
         self._boosting_factor = boosting_factor
+        self._global_honest_cache: Optional[List[Dict[str, torch.Tensor]]] = None
         logger.info(
             f"[Node {self.id}] Initialized as BYZANTINE node with "
             f"{attack.__class__.__name__}"
@@ -75,7 +76,19 @@ class ByzantineNode(Node):
         return True
     
     # ========== Malicious Behavior ==========
-    
+    def set_global_honest_cache(
+        self, global_honest: Optional[List[Dict[str, torch.Tensor]]]
+    ) -> None:
+        """
+        global_honest: list of global honest weight dicts
+        """
+        if global_honest is None:
+            self._global_honest_cache = None
+            return
+        self._global_honest_cache = [
+            self._clone_weight_dict(weights) for weights in global_honest
+        ]
+
     def prepare_broadcast(
         self,
         processes: Optional[List[Node]] = None
@@ -88,6 +101,28 @@ class ByzantineNode(Node):
         Returns:
             Malicious weight dictionary
         """
+        # Prefer global honest cache if provided and supported
+        if (
+            self._global_honest_cache is not None
+            and hasattr(self._attack, "craft_global")
+        ):
+            try:
+                malicious_weights = self._attack.craft_global(
+                    global_honest_weights=self._global_honest_cache,
+                    attacker_template=self.state.weights,
+                )
+                if self._boosting_factor != 1.0:
+                    malicious_weights = self._boost_weights(
+                        malicious_weights,
+                        self._boosting_factor,
+                    )
+                return malicious_weights
+            except Exception as e:
+                logger.error(
+                    f"[Byzantine {self.id}] Global attack failed: {e}. "
+                    "Falling back to neighborhood attack."
+                )
+
         # Collect honest neighbor weights for attack computation
         honest_weights = []
         

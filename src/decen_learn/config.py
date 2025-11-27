@@ -36,6 +36,7 @@ class AttackConfig:
     byzantine_fraction: float = 0.33
     bad_clients: Optional[List[int]] = None
     attack_type: str = "minmax"
+    global_attack: bool = False
 
 @dataclass
 class ExperimentConfig:

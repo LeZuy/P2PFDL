@@ -1,6 +1,6 @@
 
 Initializing weight projector...
-Loaded projector from configs/projection_mats.npz: 11,173,962 params → 2D
+Loaded projector from configs/projection_mats.npz: 269,722 params → 2D
 
 Creating topology: file
 Loaded topology from configs/topologies/erdos_renyi.txt
@@ -41,7 +41,7 @@ Assigned topology to 64 nodes
 ============================================================
 TRAINING CONFIGURATION
 ============================================================
-Experiment: tverberg_example
+Experiment: tverberg_ipm_0.5
 Consensus: tverberg
 
 Network:
@@ -50,10 +50,10 @@ Network:
 	Byzantine: 21 (32.8%)
 
 Training:
-	Epochs: 2
+	Epochs: 200
 	Batch size: 128
 	Test Batch size: 256
-	Learning rate: 0.01
+	Learning rate: 0.1
 	Consensus interval: 1
 
 Resources:
@@ -61,16 +61,16 @@ Resources:
 	Max parallel: 2
 
 Output:
-	Results dir: results/tverberg
+	Results dir: results/ipm0.5/tverberg
 ============================================================
 
 Initialized trainer with 64 nodes
 	Aggregator: TverbergAggregator
 	Max batched nodes: 2
-	Results dir: results/tverberg
+	Results dir: results/ipm0.5/tverberg
 
 ============================================================
-Starting training for 2 epochs
+Starting training for 200 epochs
 ============================================================
 
 
@@ -92,101 +92,7 @@ Lambda_star: None
 [Node 10] Reconstructing from 6 vectors
 Lambda_star: None
 [Node 12] Reconstructing from 8 vectors
-Lambda_star: None
-[Node 13] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 15] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 16] Reconstructing from 8 vectors
-Lambda_star: None
-[Node 17] Reconstructing from 4 vectors
-Lambda_star: [7.45014095e-01 1.46620571e-09 2.54985906e-01]
-[Node 18] Reconstructing from 7 vectors
-Lambda_star: [0.27403702 0.55860586 0.16735712]
-[Node 20] Reconstructing from 3 vectors
-Lambda_star: [0.33333333 0.33333333 0.33333333]
-[Node 21] Reconstructing from 5 vectors
-Lambda_star: None
-[Node 22] Reconstructing from 5 vectors
-Lambda_star: None
-[Node 24] Reconstructing from 8 vectors
-Lambda_star: [0.21370405 0.27798794 0.50830801]
-[Node 28] Reconstructing from 5 vectors
-Lambda_star: [0.40481186 0.31631351 0.27887464]
-[Node 29] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 31] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 32] Reconstructing from 10 vectors
-Lambda_star: [0.0967064  0.38545139 0.51784221]
-[Node 33] Reconstructing from 8 vectors
-Lambda_star: None
-[Node 36] Reconstructing from 9 vectors
-Lambda_star: None
-[Node 37] Reconstructing from 5 vectors
-Lambda_star: [0.13193124 0.28724885 0.58081992]
-[Node 38] Reconstructing from 9 vectors
-Lambda_star: None
-[Node 40] Reconstructing from 5 vectors
-Lambda_star: None
-[Node 42] Reconstructing from 4 vectors
-Lambda_star: [1.59314422e-09 4.97639779e-01 5.02360221e-01]
-[Node 44] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 46] Reconstructing from 9 vectors
-Lambda_star: None
-[Node 47] Reconstructing from 10 vectors
-Lambda_star: [0.08854576 0.37188146 0.12344946 0.41612332]
-[Node 48] Reconstructing from 8 vectors
-Lambda_star: [0.08845581 0.21385971 0.2753886  0.42229587]
-[Node 49] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 50] Reconstructing from 7 vectors
-Lambda_star: [1.49438469e-09 1.00000000e+00]
-[Node 51] Reconstructing from 8 vectors
-Lambda_star: [0.42832283 0.37864054 0.19303663]
-[Node 53] Reconstructing from 11 vectors
-Lambda_star: [-1.90253610e-24  5.97854832e-01  2.56845222e-02  3.76460646e-01]
-[Node 54] Reconstructing from 9 vectors
-Lambda_star: None
-[Node 56] Reconstructing from 8 vectors
-Lambda_star: None
-[Node 57] Reconstructing from 5 vectors
-Lambda_star: None
-[Node 59] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 60] Reconstructing from 9 vectors
-Lambda_star: [0.14456124 0.43871476 0.416724  ]
-[Node 61] Reconstructing from 8 vectors
-Lambda_star: [0.57172734 0.10175366 0.326519  ]
-[Node 62] Reconstructing from 6 vectors
-Lambda_star: None
-Consensus phase took 30.73s
-Consensus time: 30.73s
-
---- Test results after Epoch 1 ---
-Average accuracy: 10.18%
-Epoch   1/2 | Loss: 1.9484 | Time: 165.15s
-
-=== Consensus phase after Epoch 2 ===
-[Node 0] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 1] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 2] Reconstructing from 8 vectors
-Lambda_star: None
-[Node 3] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 5] Reconstructing from 7 vectors
-Lambda_star: [1.00000000e+00 1.56249115e-09]
-[Node 8] Reconstructing from 7 vectors
-Lambda_star: None
-[Node 9] Reconstructing from 5 vectors
-Lambda_star: None
-[Node 10] Reconstructing from 6 vectors
-Lambda_star: None
-[Node 12] Reconstructing from 8 vectors
-Lambda_star: None
+Lambda_star: [0.34595286 0.30809263 0.34595451]
 [Node 13] Reconstructing from 6 vectors
 Lambda_star: None
 [Node 15] Reconstructing from 6 vectors
@@ -198,13 +104,13 @@ Lambda_star: [1.]
 [Node 18] Reconstructing from 7 vectors
 Lambda_star: None
 [Node 20] Reconstructing from 3 vectors
-Lambda_star: [0.33333333 0.33333333 0.33333333]
+Lambda_star: [0.33333332 0.33333335 0.33333333]
 [Node 21] Reconstructing from 5 vectors
-Lambda_star: [0.33279353 0.40237384 0.26483263]
-[Node 22] Reconstructing from 5 vectors
 Lambda_star: None
+[Node 22] Reconstructing from 5 vectors
+Lambda_star: [0.3206035  0.25164129 0.42775522]
 [Node 24] Reconstructing from 8 vectors
-Lambda_star: [0.00684086 0.20157679 0.4677624  0.32381994]
+Lambda_star: [0.28214438 0.53955599 0.15011521 0.02818443]
 [Node 28] Reconstructing from 5 vectors
 Lambda_star: None
 [Node 29] Reconstructing from 7 vectors
@@ -212,40 +118,39 @@ Lambda_star: None
 [Node 31] Reconstructing from 7 vectors
 Lambda_star: None
 [Node 32] Reconstructing from 10 vectors
-Lambda_star: [ 7.92215792e-02  1.00684640e-01 -1.16133153e-22  4.76146877e-01
-  3.43946904e-01]
+Lambda_star: [0.29132933 0.14749122 0.23785627 0.00035983 0.32296334]
 [Node 33] Reconstructing from 8 vectors
 Lambda_star: None
 [Node 36] Reconstructing from 9 vectors
-Lambda_star: [0.48316146 0.48667309 0.03016545]
+Lambda_star: None
 [Node 37] Reconstructing from 5 vectors
 Lambda_star: None
 [Node 38] Reconstructing from 9 vectors
-Lambda_star: None
+Lambda_star: [0.15417547 0.12729886 0.16677087 0.11633698 0.43541782]
 [Node 40] Reconstructing from 5 vectors
 Lambda_star: None
 [Node 42] Reconstructing from 4 vectors
-Lambda_star: [2.34668474e-01 1.93677354e-17 7.65331526e-01]
+Lambda_star: None
 [Node 44] Reconstructing from 6 vectors
 Lambda_star: None
 [Node 46] Reconstructing from 9 vectors
-Lambda_star: None
+Lambda_star: [0.14309779 0.21014012 0.3437058  0.22537696 0.07767933]
 [Node 47] Reconstructing from 10 vectors
-Lambda_star: [ 1.01096016e-01 -3.20659898e-14  4.49191126e-01  4.49712858e-01]
+Lambda_star: [0.30744571 0.14399577 0.10591305 0.33421009 0.10843537]
 [Node 48] Reconstructing from 8 vectors
-Lambda_star: [0.61065659 0.27546572 0.11387769]
+Lambda_star: None
 [Node 49] Reconstructing from 6 vectors
 Lambda_star: None
 [Node 50] Reconstructing from 7 vectors
-Lambda_star: [0.04520136 0.16777541 0.78702323]
+Lambda_star: [0.67372493 0.07166396 0.25461112]
 [Node 51] Reconstructing from 8 vectors
-Lambda_star: [0.22841031 0.17922039 0.16515578 0.2497367  0.17747682]
+Lambda_star: [ 6.06973106e-01  5.65746669e-02  3.36452227e-01 -9.20698891e-19]
 [Node 53] Reconstructing from 11 vectors
 Lambda_star: None
 [Node 54] Reconstructing from 9 vectors
-Lambda_star: [0.59225944 0.06833155 0.06502013 0.27438888]
+Lambda_star: [0.28321873 0.15426559 0.18619697 0.30297661 0.07334209]
 [Node 56] Reconstructing from 8 vectors
-Lambda_star: [0.32306493 0.42296047 0.25397461]
+Lambda_star: None
 [Node 57] Reconstructing from 5 vectors
 Lambda_star: None
 [Node 59] Reconstructing from 7 vectors
@@ -253,20 +158,10 @@ Lambda_star: None
 [Node 60] Reconstructing from 9 vectors
 Lambda_star: None
 [Node 61] Reconstructing from 8 vectors
-Lambda_star: None
+Lambda_star: [0.64762401 0.09126048 0.26111552]
 [Node 62] Reconstructing from 6 vectors
-Lambda_star: None
-Consensus phase took 32.77s
+Lambda_star: [0.26818381 0.3782636  0.35355259]
+Consensus phase took 18.35s
+Consensus time: 18.35s
 
-============================================================
-Training complete!
-============================================================
-
-Saved final models to results/tverberg/final_models.pth
-
-============================================================
-Training completed successfully!
-Results saved to: results/tverberg
-============================================================
-
-Total execution time: 262.00 seconds
+--- Test results after Epoch 1 ---
