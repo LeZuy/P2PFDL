@@ -16,3 +16,4 @@ test_rocm.py
 /.pydeps/
 /.pytest_cache/
 *.out
+/debugs/
